@@ -49,8 +49,11 @@ private:
     
     // 新增：函数参数分析方法
     void analyzeFunctionArguments(clang::CallExpr* call, clang::FunctionDecl* callee);
-    void analyzePointerArgument(clang::Expr* arg, const std::string& callee_name, 
-                               unsigned param_index, clang::CallExpr* call);
+    void analyzePointerArgument(clang::Expr* arg, const std::string& callee_name,
+                               unsigned param_index, clang::CallExpr* call,
+                               clang::FunctionDecl* callee);
+    std::vector<std::string> collectModifiedFields(clang::FunctionDecl* callee,
+                                                  clang::ParmVarDecl* param);
     
     // 表达式分析方法
     std::string analyzePointerSource(clang::Expr* expr);
