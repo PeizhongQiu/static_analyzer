@@ -79,6 +79,15 @@ bool InterruptAnalysisVisitor::VisitBinaryOperator(BinaryOperator* op) {
     Expr* lhs = op->getLHS();
     Expr* rhs = op->getRHS();
 
+    // 如果是指针变量自身的赋值或指针算术操作, 则忽略
+    Expr* base_lhs = lhs->IgnoreImpCasts();
+    if (DeclRefExpr* decl_ref = dyn_cast<DeclRefExpr>(base_lhs)) {
+        if (decl_ref->getType()->isPointerType()) {
+            return true;
+        }
+    }
+
+
     // 检查函数指针赋值
     if (lhs->getType()->isFunctionPointerType()) {
         analyzeFunctionPointerAssignment(lhs, rhs, "direct", op);
@@ -96,7 +105,10 @@ bool InterruptAnalysisVisitor::VisitUnaryOperator(UnaryOperator* op) {
     UnaryOperator::Opcode opcode = op->getOpcode();
     if (opcode == UO_PostInc || opcode == UO_PreInc ||
         opcode == UO_PostDec || opcode == UO_PreDec) {
-
+	Expr* sub_expr = op->getSubExpr()->IgnoreImpCasts();
+        if (sub_expr->getType()->isPointerType()) {
+            return true;
+        }
         analyzeWriteOperation(op->getSubExpr(), op, "UnaryOperator");
     }
 
@@ -212,12 +224,13 @@ void InterruptAnalysisVisitor::analyzeWriteOperation(Expr* target_expr, Stmt* st
         return;
     }
 
+    std::string resolved_target = resolveGlobalAlias(target);
     WriteOperation write_op;
     write_op.function = CurrentFunction;
     write_op.file = CurrentFile;
     write_op.ast_kind = ast_kind;
-    write_op.target = target;
-    write_op.write_type = classifyWriteOperation(target_expr, target);
+    write_op.target = resolved_target;
+    write_op.write_type = classifyWriteOperation(target_expr, resolved_target);
     write_op.node_id = "write_" + std::to_string(reinterpret_cast<uintptr_t>(stmt));
 
     SourceLocation loc = stmt->getBeginLoc();
@@ -484,7 +497,7 @@ std::string InterruptAnalysisVisitor::analyzePointerSource(Expr* expr) {
         if (unary->getOpcode() == UO_AddrOf) {
             std::string target_path = analyzePointerSource(unary->getSubExpr());
             if (!target_path.empty()) {
-                return "&" + target_path;
+                return target_path;
             }
         }
     }
@@ -575,7 +588,7 @@ std::string InterruptAnalysisVisitor::extractWriteTarget(Expr* expr) {
     if (UnaryOperator* unary = dyn_cast<UnaryOperator>(expr)) {
         if (unary->getOpcode() == UO_Deref) {
             std::string sub_target = extractWriteTarget(unary->getSubExpr());
-            return "*" + sub_target;
+            return sub_target;
         }
     }
 
@@ -766,6 +779,19 @@ std::string InterruptAnalysisVisitor::extractBaseName(const std::string& target)
     }
 
     return base_name;
+}
+
+// 解析指向全局变量的局部指针别名
+std::string InterruptAnalysisVisitor::resolveGlobalAlias(const std::string& target) {
+    std::string full_alias = CurrentFile + "::" + CurrentFunction + "::" + target;
+    // std::cout << "1: " << full_alias << std::endl;
+    std::string global_path = Data->getGlobalAlias(full_alias);
+    // std::cout << "2: " << global_path << std::endl;
+    if (!global_path.empty()) {
+        // 只保留基础变量名，如从 cpu_bit_bitmap[...] 提取 cpu_bit_bitmap
+        return extractBaseName(global_path);
+    }
+    return target;
 }
 
 //=============================================================================
