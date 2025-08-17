@@ -58,6 +58,9 @@ private:
     std::vector<std::string> findPossibleTargets(const std::string& pointer_name, const std::string& pointer_type);
     std::string extractBaseName(const std::string& target);
     bool matchesKernelGlobalPattern(const std::string& name);
+
+    // Resolve local aliases to their underlying global variable
+    std::string resolveGlobalAlias(const std::string& target);
     
     // 改进的寄存器检测方法
     bool isRegisterRelatedVariable(const std::string& target);
