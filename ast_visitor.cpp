@@ -275,13 +275,14 @@ void InterruptAnalysisVisitor::analyzeFunctionArguments(CallExpr* call, Function
         
         // 检查是否是指针参数（可能会被修改）
         if (param_type->isPointerType()) {
-            analyzePointerArgument(arg, callee->getNameAsString(), i, call);
+            analyzePointerArgument(arg, callee->getNameAsString(), i, call, callee);
         }
     }
 }
 
-void InterruptAnalysisVisitor::analyzePointerArgument(Expr* arg, const std::string& callee_name, 
-                                                     unsigned param_index, CallExpr* call) {
+void InterruptAnalysisVisitor::analyzePointerArgument(Expr* arg, const std::string& callee_name,
+                                                     unsigned param_index, CallExpr* call,
+                                                     FunctionDecl* callee) {
     if (!arg) return;
     
     arg = arg->IgnoreImpCasts();
@@ -293,24 +294,114 @@ void InterruptAnalysisVisitor::analyzePointerArgument(Expr* arg, const std::stri
             
             // 只记录全局变量
             if (isGlobalVariableDecl(var_decl) || Data->isKnownGlobalVariable(var_name)) {
-                WriteOperation write_op;
-                write_op.function = CurrentFunction;
-                write_op.file = CurrentFile;
-                write_op.ast_kind = "FunctionCall";
-                write_op.target = var_name;
-                write_op.write_type = classifyWriteOperation(arg, var_name);
-                write_op.node_id = "func_arg_" + std::to_string(reinterpret_cast<uintptr_t>(call)) + "_param_" + std::to_string(param_index);
-
-                SourceLocation loc = call->getBeginLoc();
-                if (loc.isValid()) {
-                    write_op.line = Context->getSourceManager().getSpellingLineNumber(loc);
-                    write_op.column = Context->getSourceManager().getSpellingColumnNumber(loc);
+                std::vector<std::string> fields;
+                if (callee && param_index < callee->getNumParams()) {
+                    fields = collectModifiedFields(callee, callee->getParamDecl(param_index));
                 }
 
-                Data->addWrite(write_op);
+                if (fields.empty()) {
+                    fields.push_back(var_name);
+                }
+
+                for (const auto& field : fields) {
+                    WriteOperation write_op;
+                    write_op.function = CurrentFunction;
+                    write_op.file = CurrentFile;
+                    write_op.ast_kind = "FunctionCall";
+
+                    std::string target = field;
+                    if (callee && param_index < callee->getNumParams()) {
+                        std::string param_name = callee->getParamDecl(param_index)->getNameAsString();
+                        if (target.rfind(param_name, 0) == 0) {
+                            target = var_name + target.substr(param_name.length());
+                        }
+                    }
+
+                    write_op.target = target;
+                    write_op.write_type = classifyWriteOperation(arg, var_name);
+                    write_op.node_id = "func_arg_" +
+                        std::to_string(reinterpret_cast<uintptr_t>(call)) + "_param_" +
+                        std::to_string(param_index);
+
+                    SourceLocation loc = call->getBeginLoc();
+                    if (loc.isValid()) {
+                        write_op.line = Context->getSourceManager().getSpellingLineNumber(loc);
+                        write_op.column = Context->getSourceManager().getSpellingColumnNumber(loc);
+                    }
+
+                    Data->addWrite(write_op);
+                }
             }
         }
     }
+}
+
+std::vector<std::string> InterruptAnalysisVisitor::collectModifiedFields(FunctionDecl* callee,
+                                                                        ParmVarDecl* param) {
+    std::vector<std::string> result;
+    if (!callee || !param || !callee->hasBody()) return result;
+
+    class ParamFieldVisitor : public RecursiveASTVisitor<ParamFieldVisitor> {
+    public:
+        InterruptAnalysisVisitor* Parent;
+        ParmVarDecl* Param;
+        std::vector<std::string>& Res;
+
+        ParamFieldVisitor(InterruptAnalysisVisitor* P, ParmVarDecl* Prm,
+                           std::vector<std::string>& R)
+            : Parent(P), Param(Prm), Res(R) {}
+
+        bool isParamAccess(Expr* expr) {
+            if (!expr) return false;
+            expr = expr->IgnoreImpCasts();
+            if (DeclRefExpr* dr = dyn_cast<DeclRefExpr>(expr)) {
+                return dr->getDecl() == Param;
+            }
+            if (MemberExpr* me = dyn_cast<MemberExpr>(expr)) {
+                return isParamAccess(me->getBase());
+            }
+            if (ArraySubscriptExpr* arr = dyn_cast<ArraySubscriptExpr>(expr)) {
+                return isParamAccess(arr->getBase());
+            }
+            if (UnaryOperator* un = dyn_cast<UnaryOperator>(expr)) {
+                if (un->getOpcode() == UO_Deref) {
+                    return isParamAccess(un->getSubExpr());
+                }
+            }
+            return false;
+        }
+
+        bool VisitBinaryOperator(BinaryOperator* op) {
+            if (!op->isAssignmentOp()) return true;
+            Expr* lhs = op->getLHS();
+            if (isParamAccess(lhs)) {
+                std::string target = Parent->extractWriteTarget(lhs);
+                Res.push_back(target);
+            }
+            return true;
+        }
+
+        bool VisitUnaryOperator(UnaryOperator* op) {
+            auto opc = op->getOpcode();
+            if (opc == UO_PostInc || opc == UO_PreInc ||
+                opc == UO_PostDec || opc == UO_PreDec) {
+                Expr* sub = op->getSubExpr();
+                if (isParamAccess(sub)) {
+                    std::string target = Parent->extractWriteTarget(sub);
+                    Res.push_back(target);
+                }
+            }
+            return true;
+        }
+    };
+
+    ParamFieldVisitor visitor(this, param, result);
+    visitor.TraverseStmt(callee->getBody());
+
+    std::sort(result.begin(), result.end());
+    result.erase(std::unique(result.begin(), result.end()), result.end());
+
+    return result;
 }
 
 void InterruptAnalysisVisitor::analyzeWriteOperation(Expr* target_expr, Stmt* stmt, const std::string& ast_kind) {
