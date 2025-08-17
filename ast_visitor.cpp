@@ -23,7 +23,7 @@ bool InterruptAnalysisVisitor::VisitFunctionDecl(FunctionDecl* decl) {
     std::string func_name = decl->getNameAsString();
     CurrentFunction = func_name;
 
-    std::cout << "DEBUG: Entering function: " << func_name << std::endl;
+    // std::cout << "DEBUG: Entering function: " << func_name << std::endl;
 
     // 提取函数详细信息
     FunctionInfo info = extractFunctionInfo(decl);
@@ -41,14 +41,14 @@ bool InterruptAnalysisVisitor::VisitVarDecl(VarDecl* var_decl) {
     
     // 收集全局变量声明
     if (isGlobalVariableDecl(var_decl)) {
-        std::cout << "DEBUG: Found global variable: " << var_name << std::endl;
+        // std::cout << "DEBUG: Found global variable: " << var_name << std::endl;
         if (!var_name.empty()) {
             Data->addGlobalVariable(var_name, CurrentFile);
         }
     }
     // 分析局部变量的指针别名
     else if (!CurrentFunction.empty() && var_decl->hasInit()) {
-        std::cout << "DEBUG: Analyzing pointer alias for: " << var_name << " in function: " << CurrentFunction << std::endl;
+        // std::cout << "DEBUG: Analyzing pointer alias for: " << var_name << " in function: " << CurrentFunction << std::endl;
         analyzePointerAlias(var_decl);
     }
 
@@ -93,7 +93,7 @@ bool InterruptAnalysisVisitor::VisitBinaryOperator(BinaryOperator* op) {
     Expr* lhs = op->getLHS();
     Expr* rhs = op->getRHS();
 
-    std::cout << "DEBUG: Binary assignment at line " << line << " in function " << CurrentFunction << std::endl;
+    // std::cout << "DEBUG: Binary assignment at line " << line << " in function " << CurrentFunction << std::endl;
     
     // 检查函数指针赋值
     if (lhs->getType()->isFunctionPointerType()) {
@@ -102,7 +102,7 @@ bool InterruptAnalysisVisitor::VisitBinaryOperator(BinaryOperator* op) {
 
     // 检查所有写操作，包括对全局变量的间接写入
     std::string target = extractWriteTarget(lhs);
-    std::cout << "DEBUG: Assignment target: '" << target << "'" << std::endl;
+    // std::cout << "DEBUG: Assignment target: '" << target << "'" << std::endl;
     
     analyzeWriteOperation(lhs, op, "BinaryOperator");
 
@@ -205,28 +205,28 @@ void InterruptAnalysisVisitor::analyzePointerAlias(VarDecl* var_decl) {
                 if (DeclRefExpr* decl_ref = dyn_cast<DeclRefExpr>(addr_expr)) {
                     std::string target_name = decl_ref->getDecl()->getNameAsString();
                     
-                    std::cout << "DEBUG: Found pointer alias: " << var_name << " -> " << target_name << std::endl;
+                    // std::cout << "DEBUG: Found pointer alias: " << var_name << " -> " << target_name << std::endl;
                     
                     // 检查目标是否是全局变量
                     if (VarDecl* target_var = dyn_cast<VarDecl>(decl_ref->getDecl())) {
                         if (isGlobalVariableDecl(target_var)) {
-                            std::cout << "DEBUG: Target is global variable by AST check" << std::endl;
+                            // std::cout << "DEBUG: Target is global variable by AST check" << std::endl;
                             // 添加到已知全局变量列表
                             Data->addGlobalVariable(target_name, CurrentFile);
                             // 记录指针别名
                             std::string full_alias = CurrentFile + "::" + CurrentFunction + "::" + var_name;
                             Data->addPointerAlias(full_alias, target_name);
-                            std::cout << "DEBUG: Registered alias: " << full_alias << " -> " << target_name << std::endl;
+                            // std::cout << "DEBUG: Registered alias: " << full_alias << " -> " << target_name << std::endl;
                             return;
                         } else if (Data->isKnownGlobalVariable(target_name)) {
-                            std::cout << "DEBUG: Target is known global variable" << std::endl;
+                            // std::cout << "DEBUG: Target is known global variable" << std::endl;
                             // 记录指针别名
                             std::string full_alias = CurrentFile + "::" + CurrentFunction + "::" + var_name;
                             Data->addPointerAlias(full_alias, target_name);
-                            std::cout << "DEBUG: Registered alias: " << full_alias << " -> " << target_name << std::endl;
+                            // std::cout << "DEBUG: Registered alias: " << full_alias << " -> " << target_name << std::endl;
                             return;
                         } else {
-                            std::cout << "DEBUG: Target is NOT a global variable" << std::endl;
+                            // std::cout << "DEBUG: Target is NOT a global variable" << std::endl;
                         }
                     }
                 }
@@ -407,18 +407,18 @@ std::vector<std::string> InterruptAnalysisVisitor::collectModifiedFields(Functio
 void InterruptAnalysisVisitor::analyzeWriteOperation(Expr* target_expr, Stmt* stmt, const std::string& ast_kind) {
     std::string target = extractWriteTarget(target_expr);
 
-    std::cout << "DEBUG: analyzeWriteOperation - target: '" << target << "'" << std::endl;
+    // std::cout << "DEBUG: analyzeWriteOperation - target: '" << target << "'" << std::endl;
 
     // 检查是否是全局变量或通过指针的间接访问
     bool is_global = isGlobalVariableOrIndirect(target_expr, target);
-    std::cout << "DEBUG: isGlobalVariableOrIndirect returned: " << (is_global ? "true" : "false") << std::endl;
+    // std::cout << "DEBUG: isGlobalVariableOrIndirect returned: " << (is_global ? "true" : "false") << std::endl;
     
     if (!is_global) {
         return;
     }
 
     std::string resolved_target = resolveGlobalAlias(target);
-    std::cout << "DEBUG: Resolved target: '" << resolved_target << "'" << std::endl;
+    // std::cout << "DEBUG: Resolved target: '" << resolved_target << "'" << std::endl;
     
     // 生成唯一的节点ID，避免重复记录
     std::string node_id = "write_" + std::to_string(reinterpret_cast<uintptr_t>(stmt)) + "_" + ast_kind;
@@ -437,8 +437,8 @@ void InterruptAnalysisVisitor::analyzeWriteOperation(Expr* target_expr, Stmt* st
         write_op.column = Context->getSourceManager().getSpellingColumnNumber(loc);
     }
 
-    std::cout << "DEBUG: Recording write operation: target='" << write_op.target 
-              << "', type='" << write_op.write_type << "', line=" << write_op.line << std::endl;
+    // std::cout << "DEBUG: Recording write operation: target='" << write_op.target 
+              // << "', type='" << write_op.write_type << "', line=" << write_op.line << std::endl;
 
     Data->addWrite(write_op);
 }
@@ -449,7 +449,7 @@ bool InterruptAnalysisVisitor::isGlobalVariableOrIndirect(Expr* expr, const std:
 
     expr = expr->IgnoreImpCasts();
 
-    std::cout << "DEBUG: isGlobalVariableOrIndirect - checking expr type: " << expr->getStmtClassName() << std::endl;
+    // std::cout << "DEBUG: isGlobalVariableOrIndirect - checking expr type: " << expr->getStmtClassName() << std::endl;
 
     // 1. 直接的全局变量引用
     if (DeclRefExpr* decl_ref = dyn_cast<DeclRefExpr>(expr)) {
@@ -457,17 +457,17 @@ bool InterruptAnalysisVisitor::isGlobalVariableOrIndirect(Expr* expr, const std:
 
         if (VarDecl* var_decl = dyn_cast<VarDecl>(decl)) {
             std::string var_name = var_decl->getNameAsString();
-            std::cout << "DEBUG: DeclRefExpr - var_name: " << var_name << std::endl;
+            // std::cout << "DEBUG: DeclRefExpr - var_name: " << var_name << std::endl;
 
             // 检查是否在已知全局变量列表中
             if (Data->isKnownGlobalVariable(var_name)) {
-                std::cout << "DEBUG: Found in known global variables" << std::endl;
+                // std::cout << "DEBUG: Found in known global variables" << std::endl;
                 return true;
             }
 
             // 通过AST属性判断
             if (isGlobalVariableDecl(var_decl)) {
-                std::cout << "DEBUG: Identified as global by AST" << std::endl;
+                // std::cout << "DEBUG: Identified as global by AST" << std::endl;
                 // 将新发现的全局变量添加到数据中
                 Data->addGlobalVariable(var_name, CurrentFile);
                 return true;
@@ -477,27 +477,27 @@ bool InterruptAnalysisVisitor::isGlobalVariableOrIndirect(Expr* expr, const std:
 
     // 2. 成员访问 (obj->member 或 obj.member)
     if (MemberExpr* member = dyn_cast<MemberExpr>(expr)) {
-        std::cout << "DEBUG: MemberExpr found" << std::endl;
+        // std::cout << "DEBUG: MemberExpr found" << std::endl;
         Expr* base = member->getBase()->IgnoreImpCasts();
 
         // 检查基础表达式是否指向全局变量
         if (DeclRefExpr* base_decl = dyn_cast<DeclRefExpr>(base)) {
             std::string base_name = base_decl->getDecl()->getNameAsString();
-            std::cout << "DEBUG: MemberExpr base_name: " << base_name << std::endl;
+            // std::cout << "DEBUG: MemberExpr base_name: " << base_name << std::endl;
 
             // 检查是否是指向全局变量的指针别名
             std::string full_alias = CurrentFile + "::" + CurrentFunction + "::" + base_name;
             std::string global_path = Data->getGlobalAlias(full_alias);
-            std::cout << "DEBUG: Checking alias: " << full_alias << " -> " << global_path << std::endl;
+            // std::cout << "DEBUG: Checking alias: " << full_alias << " -> " << global_path << std::endl;
             if (!global_path.empty()) {
-                std::cout << "DEBUG: Found pointer alias to global variable" << std::endl;
+                // std::cout << "DEBUG: Found pointer alias to global variable" << std::endl;
                 return true;
             }
 
             // 检查基础变量本身是否是全局变量
             if (VarDecl* base_var = dyn_cast<VarDecl>(base_decl->getDecl())) {
                 if (isGlobalVariableDecl(base_var) || Data->isKnownGlobalVariable(base_name)) {
-                    std::cout << "DEBUG: Base variable is global" << std::endl;
+                    // std::cout << "DEBUG: Base variable is global" << std::endl;
                     return true;
                 }
             }
@@ -510,27 +510,27 @@ bool InterruptAnalysisVisitor::isGlobalVariableOrIndirect(Expr* expr, const std:
     // 3. 指针解引用 (*ptr)
     if (UnaryOperator* unary = dyn_cast<UnaryOperator>(expr)) {
         if (unary->getOpcode() == UO_Deref) {
-            std::cout << "DEBUG: UnaryOperator (dereference) found" << std::endl;
+            // std::cout << "DEBUG: UnaryOperator (dereference) found" << std::endl;
             Expr* ptr_expr = unary->getSubExpr()->IgnoreImpCasts();
 
             // 检查指针是否指向全局变量
             if (DeclRefExpr* ptr_decl = dyn_cast<DeclRefExpr>(ptr_expr)) {
                 std::string ptr_name = ptr_decl->getDecl()->getNameAsString();
-                std::cout << "DEBUG: Dereference ptr_name: " << ptr_name << std::endl;
+                // std::cout << "DEBUG: Dereference ptr_name: " << ptr_name << std::endl;
 
                 // 检查是否是指向全局变量的指针别名
                 std::string full_alias = CurrentFile + "::" + CurrentFunction + "::" + ptr_name;
                 std::string global_path = Data->getGlobalAlias(full_alias);
-                std::cout << "DEBUG: Checking dereference alias: " << full_alias << " -> " << global_path << std::endl;
+                // std::cout << "DEBUG: Checking dereference alias: " << full_alias << " -> " << global_path << std::endl;
                 if (!global_path.empty()) {
-                    std::cout << "DEBUG: Found pointer alias for dereference" << std::endl;
+                    // std::cout << "DEBUG: Found pointer alias for dereference" << std::endl;
                     return true;
                 }
 
                 // 检查指针本身是否是全局变量
                 if (VarDecl* ptr_var_decl = dyn_cast<VarDecl>(ptr_decl->getDecl())) {
                     if (isGlobalVariableDecl(ptr_var_decl)) {
-                        std::cout << "DEBUG: Pointer itself is global" << std::endl;
+                        // std::cout << "DEBUG: Pointer itself is global" << std::endl;
                         return true;
                     }
                 }
@@ -540,11 +540,11 @@ bool InterruptAnalysisVisitor::isGlobalVariableOrIndirect(Expr* expr, const std:
 
     // 4. 数组访问 (arr[i])
     if (ArraySubscriptExpr* array = dyn_cast<ArraySubscriptExpr>(expr)) {
-        std::cout << "DEBUG: ArraySubscriptExpr found" << std::endl;
+        // std::cout << "DEBUG: ArraySubscriptExpr found" << std::endl;
         return isGlobalVariableOrIndirect(array->getBase(), "");
     }
 
-    std::cout << "DEBUG: No global variable found" << std::endl;
+    // std::cout << "DEBUG: No global variable found" << std::endl;
     return false;
 }
 
@@ -585,7 +585,7 @@ std::string InterruptAnalysisVisitor::extractWriteTarget(Expr* expr) {
 
 // 解析指向全局变量的局部指针别名
 std::string InterruptAnalysisVisitor::resolveGlobalAlias(const std::string& target) {
-    std::cout << "DEBUG: resolveGlobalAlias - input target: '" << target << "'" << std::endl;
+    // std::cout << "DEBUG: resolveGlobalAlias - input target: '" << target << "'" << std::endl;
 
     // 首先检查是否包含成员访问操作符
     size_t arrow_pos = target.find("->");
@@ -597,47 +597,47 @@ std::string InterruptAnalysisVisitor::resolveGlobalAlias(const std::string& targ
         std::string base_var = target.substr(0, sep_pos);
         std::string member_access = target.substr(sep_pos);
 
-        std::cout << "DEBUG: Member access detected - base_var: '" << base_var
-                  << "', member_access: '" << member_access << "'" << std::endl;
+        // std::cout << "DEBUG: Member access detected - base_var: '" << base_var
+                  // << "', member_access: '" << member_access << "'" << std::endl;
 
         // 检查基础变量是否有别名
         std::string full_alias = CurrentFile + "::" + CurrentFunction + "::" + base_var;
         std::string global_path = Data->getGlobalAlias(full_alias);
-        std::cout << "DEBUG: Checking alias: " << full_alias << " -> " << global_path << std::endl;
+        // std::cout << "DEBUG: Checking alias: " << full_alias << " -> " << global_path << std::endl;
         if (!global_path.empty()) {
             std::string result = extractBaseName(global_path) + member_access;
-            std::cout << "DEBUG: Resolved via alias: " << result << std::endl;
+            // std::cout << "DEBUG: Resolved via alias: " << result << std::endl;
             return result;
         }
 
         // 检查基础变量是否本身就是全局变量
         if (Data->isKnownGlobalVariable(base_var)) {
-            std::cout << "DEBUG: Base variable is known global" << std::endl;
+            // std::cout << "DEBUG: Base variable is known global" << std::endl;
             return target;
         }
 
-        std::cout << "DEBUG: No alias found, returning original" << std::endl;
+        // std::cout << "DEBUG: No alias found, returning original" << std::endl;
         return target;
     }
 
     // 没有成员访问的情况
     // 直接检查target是否是已知的全局变量
     if (Data->isKnownGlobalVariable(target)) {
-        std::cout << "DEBUG: Target is known global variable" << std::endl;
+        // std::cout << "DEBUG: Target is known global variable" << std::endl;
         return target;
     }
 
     // 检查是否是局部指针变量的别名
     std::string full_alias = CurrentFile + "::" + CurrentFunction + "::" + target;
     std::string global_path = Data->getGlobalAlias(full_alias);
-    std::cout << "DEBUG: Checking simple alias: " << full_alias << " -> " << global_path << std::endl;
+    // std::cout << "DEBUG: Checking simple alias: " << full_alias << " -> " << global_path << std::endl;
     if (!global_path.empty()) {
         std::string result = extractBaseName(global_path);
-        std::cout << "DEBUG: Resolved via simple alias: " << result << std::endl;
+        // std::cout << "DEBUG: Resolved via simple alias: " << result << std::endl;
         return result;
     }
 
-    std::cout << "DEBUG: No resolution found, returning original: " << target << std::endl;
+    // std::cout << "DEBUG: No resolution found, returning original: " << target << std::endl;
     return target;
 }
 
