@@ -117,6 +117,20 @@ bool saveResults(const Json::Value& result, const std::string& filename) {
     return true;
 }
 
+/**
+ * 根据 handler 名生成输出文件名
+ */
+std::string getOutputFileWithHandler(const std::string& base, const std::string& handler) {
+    std::string filename = base;
+    auto pos = filename.rfind('.');
+    if (pos != std::string::npos) {
+        filename.insert(pos, "_" + handler);
+    } else {
+        filename += "_" + handler;
+    }
+    return filename;
+}
+
 //=============================================================================
 // 主函数
 //=============================================================================
@@ -171,13 +185,15 @@ int main(int argc, const char** argv) {
     std::cout << "📋 使用编译数据库: " << compile_commands_path << std::endl;
 
     // 显示欢迎信息
+    std::string final_output = getOutputFileWithHandler(OutputFile, HandlerName);
+
     std::cout << "============================================" << std::endl;
     std::cout << "🚀 C++ 中断处理函数分析器 v4.0" << std::endl;
     std::cout << "============================================" << std::endl;
     std::cout << "🎯 目标函数: " << HandlerName << std::endl;
     std::cout << "📄 目标文件: " << HandlerFile << std::endl;
     std::cout << "📋 编译数据库: " << compile_commands_path << std::endl;
-    std::cout << "💾 输出文件: " << OutputFile << std::endl;
+    std::cout << "💾 输出文件: " << final_output << std::endl;
     std::cout << "📁 源文件数量: " << options_parser.getSourcePathList().size() << std::endl;
     std::cout << "============================================" << std::endl;
 
@@ -193,10 +209,10 @@ int main(int argc, const char** argv) {
     }
 
     // 保存结果
-    if (saveResults(result, OutputFile)) {
-        std::cout << "\n💾 结果已保存到: " << OutputFile << std::endl;
+    if (saveResults(result, final_output)) {
+        std::cout << "\n💾 结果已保存到: " << final_output << std::endl;
     } else {
-        std::cout << "⚠️ 无法保存结果到文件: " << OutputFile << std::endl;
+        std::cout << "⚠️ 无法保存结果到文件: " << final_output << std::endl;
     }
 
     // 显示结果摘要
