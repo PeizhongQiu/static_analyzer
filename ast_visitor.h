@@ -47,9 +47,18 @@ private:
     RegisterOperation parseRegisterOperation(const std::smatch& match, const std::string& op_info,
                                            clang::GCCAsmStmt* asm_stmt, const std::string& asm_text);
     
+    // 新增：函数参数分析方法
+    void analyzeFunctionArguments(clang::CallExpr* call, clang::FunctionDecl* callee);
+    void analyzePointerArgument(clang::Expr* arg, const std::string& callee_name, 
+                               unsigned param_index, clang::CallExpr* call);
+    
     // 表达式分析方法
     std::string analyzePointerSource(clang::Expr* expr);
     bool isGlobalVariable(clang::Expr* expr, const std::string& target);
+    
+    // 新增：增强的全局变量检测
+    bool isGlobalVariableOrIndirect(clang::Expr* expr, const std::string& target);
+    
     std::string extractWriteTarget(clang::Expr* expr);
     std::string classifyWriteOperation(clang::Expr* expr, const std::string& target);
     std::string extractFunctionPointerName(clang::Expr* expr);
@@ -57,6 +66,10 @@ private:
     std::string extractFunctionName(clang::Expr* expr);
     std::vector<std::string> findPossibleTargets(const std::string& pointer_name, const std::string& pointer_type);
     std::string extractBaseName(const std::string& target);
+    
+    // 新增：从目标字符串中提取基础变量名
+    std::string extractBaseNameFromTarget(const std::string& target);
+    
     bool matchesKernelGlobalPattern(const std::string& name);
    
     // Resolve local aliases to their underlying global variable
@@ -72,6 +85,9 @@ private:
     std::string analyzePointerContext(clang::Expr* ptr_expr, clang::QualType pointee_type);
     std::string classifyByNamingConvention(const std::string& ptr_name, clang::QualType pointee_type);
     std::string analyzeGlobalPathType(const std::string& global_path);
+    
+    // 新增：根据变量名和类型进行分类
+    std::string classifyVariableByName(const std::string& var_name, clang::QualType pointee_type);
 };
 
 #endif // AST_VISITOR_H

@@ -39,6 +39,19 @@ void AnalysisData::addFunctionPointerAssignment(const FunctionPointerAssignment&
 
 void AnalysisData::addWrite(const WriteOperation& write) {
     std::lock_guard<std::mutex> lock(mutex);
+    
+    // 更严格的去重：检查是否已经存在相同的写操作
+    // 基于目标、函数、文件、行号的组合进行去重
+    for (const auto& existing_write : all_writes) {
+        if (existing_write.target == write.target &&
+            existing_write.function == write.function &&
+            existing_write.file == write.file &&
+            existing_write.line == write.line &&
+            existing_write.ast_kind == write.ast_kind) {
+            return; // 已存在，跳过
+        }
+    }
+    
     all_writes.push_back(write);
 }
 
