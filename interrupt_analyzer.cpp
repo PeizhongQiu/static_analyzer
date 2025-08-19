@@ -25,48 +25,7 @@ InterruptAnalyzer::~InterruptAnalyzer() {
     cleanupStreamingComponents();
 }
 
-Json::Value InterruptAnalyzer::analyzeHandler(const std::string& handler_name, const std::string& handler_file) {
-    // 保持原有接口的兼容性
-    std::cout << "\n🎯 开始分析中断处理函数: " << handler_name << " (兼容模式)" << std::endl;
-    
-    auto start_time = std::chrono::high_resolution_clock::now();
-
-    if (!loadAndAnalyzeProject()) {
-        Json::Value error_result;
-        error_result["error"] = "Failed to load and analyze project";
-        return error_result;
-    }
-
-    Json::Value result;
-    result["handler_name"] = handler_name;
-    result["handler_file"] = handler_file;
-
-    auto func_it = data.function_locations.find(handler_name);
-    if (func_it == data.function_locations.end()) {
-        result["error"] = "Handler function not found";
-        return result;
-    }
-
-    std::unordered_set<std::string> reachable;
-    std::unordered_set<std::string> indirect_calls;
-    std::tie(reachable, indirect_calls) = buildReachableFunctions(handler_name);
-
-    std::cout << "✅ 找到 " << reachable.size() << " 个可达函数";
-    if (!indirect_calls.empty()) {
-        std::cout << "，其中 " << indirect_calls.size() << " 个通过函数指针调用";
-    }
-    std::cout << std::endl;
-
-    result = generateAnalysisResult(handler_name, handler_file, reachable, indirect_calls);
-
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-    printAnalysisStatistics(duration.count());
-
-    return result;
-}
-
-Json::Value InterruptAnalyzer::analyzeHandlerStreaming(const std::string& handler_name, 
+Json::Value InterruptAnalyzer::analyzeHandlerStreaming(const std::string& handler_name,
                                                      const std::string& handler_file) {
     std::cout << "\n🚀 开始流式分析中断处理函数: " << handler_name << std::endl;
     
@@ -122,35 +81,6 @@ Json::Value InterruptAnalyzer::analyzeHandlerStreaming(const std::string& handle
 void InterruptAnalyzer::updateConfig(const StreamingConfig& new_config) {
     config = new_config;
     std::cout << "📝 流式处理配置已更新" << std::endl;
-}
-
-bool InterruptAnalyzer::loadAndAnalyzeProject() {
-    // 原有的分析方法 - 保持兼容性
-    if (cache_manager->cacheExists()) {
-        std::cout << "📦 发现分析缓存，正在加载..." << std::endl;
-        if (cache_manager->loadFromCache()) {
-            std::cout << "✅ 缓存加载成功" << std::endl;
-            return true;
-        } else {
-            std::cout << "⚠️ 缓存加载失败，重新分析..." << std::endl;
-        }
-    }
-
-    std::cout << "📁 开始分析项目源文件..." << std::endl;
-    std::cout << "🔄 使用传统批处理分析..." << std::endl;
-
-    bool success = frontend_manager->runAnalysis();
-    
-    if (success) {
-        std::cout << "💾 保存分析结果到缓存..." << std::endl;
-        if (cache_manager->saveToCache()) {
-            std::cout << "✅ 缓存保存成功" << std::endl;
-        } else {
-            std::cout << "⚠️ 缓存保存失败" << std::endl;
-        }
-    }
-
-    return success;
 }
 
 bool InterruptAnalyzer::loadAndAnalyzeProjectStreaming() {

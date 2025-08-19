@@ -60,12 +60,7 @@ public:
     ~InterruptAnalyzer();
 
     /**
-     * 原有接口 - 保持兼容性
-     */
-    Json::Value analyzeHandler(const std::string& handler_name, const std::string& handler_file);
-
-    /**
-     * 新的流式分析接口
+     * 流式分析接口
      */
     Json::Value analyzeHandlerStreaming(const std::string& handler_name, const std::string& handler_file);
 
@@ -97,10 +92,6 @@ public:
     AnalysisStats getStatistics() const;
 
 private:
-    /**
-     * 原有方法 - 保持不变
-     */
-    bool loadAndAnalyzeProject();
     std::pair<std::unordered_set<std::string>, std::unordered_set<std::string>>
     buildReachableFunctions(const std::string& handler_name);
     Json::Value generateAnalysisResult(const std::string& handler_name,
