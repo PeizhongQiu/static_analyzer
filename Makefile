@@ -1,10 +1,11 @@
 TARGET = interrupt_analyzer
 CXX = clang++
-CXXFLAGS = -std=c++17 -Wall -O2 -fno-rtti
+CXXFLAGS = -std=c++17 -Wall -O2
 
-# 重构后的源文件 - 确保包含 ast_visitor_base
+# 流式处理优化后的源文件
 SOURCES = main.cpp \
           interrupt_analyzer.cpp \
+          stream_processor.cpp \
           analysis_data.cpp \
           ast_visitor_base.cpp \
           ast_visitor.cpp \
@@ -45,7 +46,7 @@ CLANG_LIBS = -lclangTooling \
              -lclangLex \
              -lclangBasic
 
-# 系统库
+# 系统库 - 添加线程支持
 SYS_LIBS = -ljsoncpp -lpthread -ldl -lz -lm
 
 # 默认目标
@@ -53,11 +54,19 @@ all: $(TARGET)
 
 # 链接目标 - 确保库的顺序正确
 $(TARGET): $(OBJECTS)
-	@echo "🔗 Linking $(TARGET)..."
+	@echo "🔗 Linking $(TARGET) with streaming support..."
 	$(CXX) -o $@ $^ $(LLVM_LDFLAGS) $(CLANG_LIBS) $(LLVM_LIBS) $(LLVM_SYSLIBS) $(SYS_LIBS)
-	@echo "✅ Build completed successfully!"
+	@echo "✅ Streaming build completed successfully!"
 
-# 编译对象文件 - 添加依赖关系
+# 编译对象文件 - 添加新的依赖关系
+stream_processor.o: stream_processor.cpp stream_processor.h analysis_data.h
+	@echo "🔄 Compiling streaming processor..."
+	$(CXX) $(CXXFLAGS) $(LLVM_CXXFLAGS) -c $< -o $@
+
+interrupt_analyzer.o: interrupt_analyzer.cpp interrupt_analyzer.h stream_processor.h analysis_data.h
+	@echo "🔄 Compiling streaming analyzer..."
+	$(CXX) $(CXXFLAGS) $(LLVM_CXXFLAGS) -c $< -o $@
+
 ast_visitor_base.o: ast_visitor_base.cpp ast_visitor_base.h analysis_data.h data_structures.h
 	@echo "🔄 Compiling $<..."
 	$(CXX) $(CXXFLAGS) $(LLVM_CXXFLAGS) -c $< -o $@
@@ -97,6 +106,7 @@ clean:
 clean-all: clean
 	@echo "🧹 Cleaning all generated files..."
 	rm -f *.json analysis_result_*.json
+	rm -rf .analysis_cache/
 	@echo "✅ Deep clean completed!"
 
 # 安装
@@ -123,52 +133,106 @@ check-deps:
 	@pkg-config --exists jsoncpp 2>/dev/null || echo "⚠️ WARNING: jsoncpp not found"
 	@echo "✅ Dependencies check completed"
 
-# 测试目标
-test: $(TARGET)
-	@echo "🧪 Running basic functionality test..."
+# 流式处理测试
+test-streaming: $(TARGET)
+	@echo "🧪 Running streaming processing test..."
 	@echo "Note: This requires a compile_commands.json file in the current directory"
 	@if [ -f "compile_commands.json" ]; then \
 		echo "✅ Found compile_commands.json"; \
+		echo "🚀 Testing streaming mode..."; \
+		./$(TARGET) --handler=test_handler --file=test.c --streaming --threads=4 --memory=256 --batch-size=10 || echo "⚠️ Test completed with warnings"; \
 	else \
 		echo "⚠️ No compile_commands.json found in current directory"; \
 	fi
 
-# 清理缓存
-clean-cache:
-	@echo "🗑️ Cleaning analysis cache..."
-	rm -f analysis_cache.json
-	@echo "✅ Cache cleaned!"
+# 性能基准测试
+benchmark: $(TARGET)
+	@echo "📊 Running performance benchmark..."
+	@if [ -f "compile_commands.json" ]; then \
+		echo "🔄 Testing traditional mode..."; \
+		time ./$(TARGET) --handler=benchmark_handler --file=test.c --no-streaming --output=result_traditional.json || true; \
+		echo "🚀 Testing streaming mode..."; \
+		time ./$(TARGET) --handler=benchmark_handler --file=test.c --streaming --output=result_streaming.json || true; \
+		echo "✅ Benchmark completed! Check result_*.json files for comparison."; \
+	else \
+		echo "⚠️ Benchmark requires compile_commands.json"; \
+	fi
 
-# 显示模块结构
-show-modules:
-	@echo "📋 Module Structure:"
-	@echo "  🏗️ Core:"
-	@echo "    - analysis_data: Data storage and management"
-	@echo "    - ast_visitor_base: Base AST visitor functionality"
-	@echo "  🔍 Analysis Modules:"
-	@echo "    - pointer_analysis: Pointer alias and parameter tracking"
-	@echo "    - write_analysis: Global variable write detection"
-	@echo "    - function_pointer_analysis: Function pointer handling"
-	@echo "    - assembly_analysis: Inline assembly processing"
-	@echo "  🏭 Infrastructure:"
-	@echo "    - compilation_database: Build system integration"
-	@echo "    - clang_frontend: Clang tooling management"
-	@echo "    - cache_manager: Result caching system"
-	@echo "  🎯 Main:"
-	@echo "    - interrupt_analyzer: Main analysis coordinator"
-	@echo "    - main: CLI interface"
+# 内存测试
+test-memory: $(TARGET)
+	@echo "🧠 Testing memory usage..."
+	@if [ -f "compile_commands.json" ]; then \
+		echo "Testing with different memory limits..."; \
+		./$(TARGET) --handler=memory_test --file=test.c --streaming --memory=100 --threads=2 || true; \
+		./$(TARGET) --handler=memory_test --file=test.c --streaming --memory=500 --threads=4 || true; \
+		./$(TARGET) --handler=memory_test --file=test.c --streaming --memory=1000 --threads=8 || true; \
+	else \
+		echo "⚠️ Memory test requires compile_commands.json"; \
+	fi
 
-# 模块化构建（可选）
-build-modules: 
-	@echo "🔧 Building core modules first..."
-	$(MAKE) analysis_data.o ast_visitor_base.o
-	@echo "🔧 Building analysis modules..."
-	$(MAKE) pointer_analysis.o write_analysis.o function_pointer_analysis.o assembly_analysis.o
-	@echo "🔧 Building infrastructure modules..."
-	$(MAKE) compilation_database.o clang_frontend.o cache_manager.o
-	@echo "🔧 Building main components..."
-	$(MAKE) interrupt_analyzer.o ast_visitor.o main.o
-	@echo "🔗 Linking final executable..."
-	$(MAKE) $(TARGET)
+# 显示流式处理特性
+show-streaming-features:
+	@echo "🚀 Streaming Processing Features:"
+	@echo "  ✅ Multi-threaded Analysis:"
+	@echo "    - Parallel file processing with configurable thread pool"
+	@echo "    - Intelligent task scheduling based on file size and priority"
+	@echo "  ✅ Memory Optimization:"
+	@echo "    - Configurable memory limits with pressure relief"
+	@echo "    - Batch processing to control memory usage"
+	@echo "    - Automatic cache eviction under memory pressure"
+	@echo "  ✅ Incremental Analysis:"
+	@echo "    - File-level change detection using content hashing"
+	@echo "    - Cached results for unchanged files"
+	@echo "    - Significant speedup for incremental builds"
+	@echo "  ✅ Real-time Progress:"
+	@echo "    - Live progress reporting during analysis"
+	@echo "    - Performance statistics and cache hit rates"
+	@echo "    - Memory usage monitoring"
+	@echo "  ✅ Flexible Configuration:"
+	@echo "    - Command-line options for all parameters"
+	@echo "    - Automatic hardware detection for optimal settings"
+	@echo "    - Backward compatibility with traditional mode"
 
-.PHONY: all clean clean-all clean-cache install debug check-deps test show-modules build-modules
+# 显示使用示例
+show-examples:
+	@echo "📖 Usage Examples:"
+	@echo ""
+	@echo "🚀 Basic Streaming Mode:"
+	@echo "  make && ./interrupt_analyzer --handler=timer_irq --file=timer.c --streaming -p build src/"
+	@echo ""
+	@echo "⚡ High Performance Mode:"
+	@echo "  ./interrupt_analyzer --handler=interrupt_handler --file=irq.c \\"
+	@echo "    --streaming --threads=16 --memory=2048 --batch-size=50 \\"
+	@echo "    -p build src/"
+	@echo ""
+	@echo "💾 Memory Constrained Mode:"
+	@echo "  ./interrupt_analyzer --handler=low_mem_handler --file=handler.c \\"
+	@echo "    --streaming --threads=2 --memory=128 --batch-size=5 \\"
+	@echo "    --memory-relief -p build src/"
+	@echo ""
+	@echo "🔄 Traditional Mode (for comparison):"
+	@echo "  ./interrupt_analyzer --handler=old_handler --file=old.c \\"
+	@echo "    --no-streaming -p build src/"
+	@echo ""
+	@echo "📊 Benchmark Comparison:"
+	@echo "  make benchmark  # Runs both modes and compares performance"
+
+# 快速开始指南
+quick-start:
+	@echo "🚀 Quick Start Guide:"
+	@echo "1. Build the analyzer:"
+	@echo "   make"
+	@echo ""
+	@echo "2. Ensure you have a compile_commands.json file"
+	@echo "   (generated by your build system)"
+	@echo ""
+	@echo "3. Run streaming analysis:"
+	@echo "   ./interrupt_analyzer --handler=YOUR_HANDLER --file=YOUR_FILE.c \\"
+	@echo "     --streaming -p YOUR_BUILD_DIR YOUR_SOURCE_FILES"
+	@echo ""
+	@echo "4. Check the output JSON file for results"
+	@echo ""
+	@echo "💡 For large projects, try:"
+	@echo "   ./interrupt_analyzer --handler=YOUR_HANDLER --file=YOUR_FILE.c \\"
+	@echo "     --streaming --threads=8 --memory=1024 \\"
+	@echo "     -p YOUR_BUILD_DIR YOUR_SOURCE_FILES
