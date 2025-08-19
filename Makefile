@@ -2,7 +2,7 @@ TARGET = interrupt_analyzer
 CXX = clang++
 CXXFLAGS = -std=c++17 -Wall -O2 -fno-rtti
 
-# 重构后的源文件
+# 重构后的源文件 - 确保包含 ast_visitor_base
 SOURCES = main.cpp \
           interrupt_analyzer.cpp \
           analysis_data.cpp \
@@ -57,7 +57,32 @@ $(TARGET): $(OBJECTS)
 	$(CXX) -o $@ $^ $(LLVM_LDFLAGS) $(CLANG_LIBS) $(LLVM_LIBS) $(LLVM_SYSLIBS) $(SYS_LIBS)
 	@echo "✅ Build completed successfully!"
 
-# 编译对象文件
+# 编译对象文件 - 添加依赖关系
+ast_visitor_base.o: ast_visitor_base.cpp ast_visitor_base.h analysis_data.h data_structures.h
+	@echo "🔄 Compiling $<..."
+	$(CXX) $(CXXFLAGS) $(LLVM_CXXFLAGS) -c $< -o $@
+
+ast_visitor.o: ast_visitor.cpp ast_visitor.h ast_visitor_base.h pointer_analysis.h write_analysis.h function_pointer_analysis.h assembly_analysis.h
+	@echo "🔄 Compiling $<..."
+	$(CXX) $(CXXFLAGS) $(LLVM_CXXFLAGS) -c $< -o $@
+
+pointer_analysis.o: pointer_analysis.cpp pointer_analysis.h analysis_data.h
+	@echo "🔄 Compiling $<..."
+	$(CXX) $(CXXFLAGS) $(LLVM_CXXFLAGS) -c $< -o $@
+
+write_analysis.o: write_analysis.cpp write_analysis.h analysis_data.h pointer_analysis.h
+	@echo "🔄 Compiling $<..."
+	$(CXX) $(CXXFLAGS) $(LLVM_CXXFLAGS) -c $< -o $@
+
+function_pointer_analysis.o: function_pointer_analysis.cpp function_pointer_analysis.h analysis_data.h
+	@echo "🔄 Compiling $<..."
+	$(CXX) $(CXXFLAGS) $(LLVM_CXXFLAGS) -c $< -o $@
+
+assembly_analysis.o: assembly_analysis.cpp assembly_analysis.h analysis_data.h
+	@echo "🔄 Compiling $<..."
+	$(CXX) $(CXXFLAGS) $(LLVM_CXXFLAGS) -c $< -o $@
+
+# 默认编译规则（用于其他文件）
 %.o: %.cpp
 	@echo "🔄 Compiling $<..."
 	$(CXX) $(CXXFLAGS) $(LLVM_CXXFLAGS) -c $< -o $@
@@ -142,7 +167,7 @@ build-modules:
 	@echo "🔧 Building infrastructure modules..."
 	$(MAKE) compilation_database.o clang_frontend.o cache_manager.o
 	@echo "🔧 Building main components..."
-	$(MAKE) interrupt_analyzer.o main.o
+	$(MAKE) interrupt_analyzer.o ast_visitor.o main.o
 	@echo "🔗 Linking final executable..."
 	$(MAKE) $(TARGET)
 

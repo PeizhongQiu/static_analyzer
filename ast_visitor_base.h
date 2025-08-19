@@ -9,11 +9,14 @@
 #include <vector>
 #include <unordered_map>
 
+// Forward declaration
+class InterruptAnalysisVisitor;
+
 /**
  * AST访问器基础类
  * 包含基本的访问方法和成员变量
  */
-class InterruptAnalysisVisitorBase : public clang::RecursiveASTVisitor<InterruptAnalysisVisitorBase> {
+class InterruptAnalysisVisitorBase : public clang::RecursiveASTVisitor<InterruptAnalysisVisitor> {
 protected:
     clang::ASTContext* Context;
     AnalysisData* Data;
@@ -31,16 +34,16 @@ protected:
 public:
     explicit InterruptAnalysisVisitorBase(clang::ASTContext* context, AnalysisData* data, const std::string& file);
     
-    // 基础AST节点访问方法
-    bool VisitFunctionDecl(clang::FunctionDecl* decl);
-    bool VisitVarDecl(clang::VarDecl* var_decl);
-    bool VisitCallExpr(clang::CallExpr* call);
-    bool VisitBinaryOperator(clang::BinaryOperator* op);
-    bool VisitUnaryOperator(clang::UnaryOperator* op);
-    bool VisitInitListExpr(clang::InitListExpr* init_list);
-    bool VisitDesignatedInitExpr(clang::DesignatedInitExpr* designated_init);
-    bool VisitGCCAsmStmt(clang::GCCAsmStmt* asm_stmt);
-    bool VisitReturnStmt(clang::ReturnStmt* ret_stmt);
+    // 基础AST节点访问方法 - 声明为虚函数以便子类重写
+    virtual bool VisitFunctionDecl(clang::FunctionDecl* decl);
+    virtual bool VisitVarDecl(clang::VarDecl* var_decl);
+    virtual bool VisitCallExpr(clang::CallExpr* call);
+    virtual bool VisitBinaryOperator(clang::BinaryOperator* op);
+    virtual bool VisitUnaryOperator(clang::UnaryOperator* op);
+    virtual bool VisitInitListExpr(clang::InitListExpr* init_list);
+    virtual bool VisitDesignatedInitExpr(clang::DesignatedInitExpr* designated_init);
+    virtual bool VisitGCCAsmStmt(clang::GCCAsmStmt* asm_stmt);
+    virtual bool VisitReturnStmt(clang::ReturnStmt* ret_stmt);
 
 protected:
     // 核心分析方法 - 由子类实现

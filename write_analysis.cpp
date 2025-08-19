@@ -1,5 +1,6 @@
 #include "write_analysis.h"
 #include <clang/AST/AST.h>
+#include <clang/AST/RecursiveASTVisitor.h>  // 添加这个头文件
 #include <clang/Basic/SourceManager.h>
 #include <algorithm>
 #include <set>
@@ -463,7 +464,8 @@ std::vector<std::string> WriteAnalyzer::collectModifiedFields(FunctionDecl* call
     std::vector<std::string> result;
     if (!callee || !param || !callee->hasBody()) return result;
 
-    class ParamFieldVisitor : public RecursiveASTVisitor<ParamFieldVisitor> {
+    // 修复后的参数字段访问器 - 添加正确的头文件引用
+    class ParamFieldVisitor : public clang::RecursiveASTVisitor<ParamFieldVisitor> {
     public:
         WriteAnalyzer* Parent;
         ParmVarDecl* Param;

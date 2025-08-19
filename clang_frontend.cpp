@@ -62,26 +62,7 @@ bool ClangFrontendManager::runAnalysis() {
         llvm::sys::path::parent_path(compile_db_path), error_msg);
     
     if (!compilation_db) {
-        // 跳过重复的 --no-warn 选项
-        if (arg == "--no-warn" || arg == "-w") {
-            if (seen_options.find("no-warn") == seen_options.end()) {
-                seen_options.insert("no-warn");
-                adjusted_args.push_back("-w");  // 使用简短形式
-            }
-            continue;
-        }
-        
-        // 跳过其他可能导致问题的选项
-        if (arg.find("--help") == 0 || arg.find("--version") == 0 ||
-            arg.find("-march=") == 0 || arg.find("-mcpu=") == 0) {
-            continue;
-        }
-        
-        adjusted_args.push_back(arg);
-    }
-    
-    return adjusted_args;
-} 如果自动检测失败，尝试加载固定的编译数据库
+        // 如果自动检测失败，尝试加载固定的编译数据库
         compilation_db = CompilationDatabase::loadFromDirectory(
             llvm::sys::path::parent_path(compile_db_path), error_msg);
     }
@@ -138,15 +119,15 @@ CommandLineArguments ClangFrontendManager::adjustArguments(const CommandLineArgu
             }
             continue;
         }
-                
+        
         // 跳过其他可能导致问题的选项
         if (arg.find("--help") == 0 || arg.find("--version") == 0 ||
             arg.find("-march=") == 0 || arg.find("-mcpu=") == 0) {
             continue;
         }
-                
+        
         adjusted_args.push_back(arg);
     }
-            
+    
     return adjusted_args;
-} 
+}

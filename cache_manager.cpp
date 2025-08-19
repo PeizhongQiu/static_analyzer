@@ -343,28 +343,6 @@ Json::Value CacheManager::serializeFunctionPointerParams() {
 }
 
 //=============================================================================
-// JSON反序列化 (这里只提供一个示例，其他类似)
-//=============================================================================
-
-bool CacheManager::deserializeFunctionLocations(const Json::Value& root) {
-    if (!root.isMember("function_locations")) return true;
-    
-    std::lock_guard<std::mutex> lock(data->mutex);
-    
-    for (const auto& item : root["function_locations"]) {
-        if (!item.isMember("name") || !item.isMember("locations")) continue;
-        
-        std::string func_name = item["name"].asString();
-        std::vector<std::string> locations;
-        for (const auto& loc : item["locations"]) {
-            locations.push_back(loc.asString());
-        }
-        data->function_locations[func_name] = locations;
-    }
-    return true;
-}
-
-//=============================================================================
 // JSON反序列化
 //=============================================================================
 
