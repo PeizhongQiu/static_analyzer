@@ -2,55 +2,43 @@
 #define INTERRUPT_ANALYZER_H
 
 #include "analysis_data.h"
+#include "cache_manager.h"
+#include "clang_frontend.h"
+#include "compilation_database.h"
 #include <jsoncpp/json/json.h>
 #include <string>
 #include <vector>
 #include <unordered_set>
-
-// 前向声明
-namespace clang {
-namespace tooling {
-class CompilationDatabase;
-}
-}
+#include <memory>
 
 /**
- * 中断处理函数分析器主类
- * 基于 compile_commands.json 进行精确分析
+ * 重构后的中断处理函数分析器主类
  */
 class InterruptAnalyzer {
 private:
     AnalysisData data;
     std::string compile_db_path;
+    std::unique_ptr<CacheManager> cache_manager;
+    std::unique_ptr<ClangFrontendManager> frontend_manager;
 
 public:
     explicit InterruptAnalyzer(const std::string& compile_commands_path);
 
     /**
      * 分析中断处理函数
-     * @param handler_name 处理函数名
-     * @param handler_file 处理函数所在文件
-     * @return 分析结果JSON
      */
     Json::Value analyzeHandler(const std::string& handler_name, const std::string& handler_file);
 
+    /**
+     * 获取分析数据
+     */
     const AnalysisData& getData() const { return data; }
 
 private:
     /**
-     * 加载并分析编译数据库
+     * 加载并分析项目
      */
     bool loadAndAnalyzeProject();
-
-    /**
-     * 从缓存文件加载分析结果
-     */
-    bool loadFromCache(const std::string& cache_file);
-
-    /**
-     * 保存分析结果到缓存文件
-     */
-    bool saveToCache(const std::string& cache_file);
 
     /**
      * 构建可达函数集合
@@ -67,7 +55,7 @@ private:
                                      const std::unordered_set<std::string>& indirect_calls);
 
     /**
-     * 过滤和统计各种操作
+     * 结果生成器
      */
     Json::Value filterWrites(const std::unordered_set<std::string>& reachable);
     Json::Value filterRegisterOperations(const std::unordered_set<std::string>& reachable);
@@ -78,7 +66,7 @@ private:
                                  const Json::Value& result);
 
     /**
-     * 打印分析统计信息
+     * 统计信息输出
      */
     void printAnalysisStatistics(long duration_ms);
 };

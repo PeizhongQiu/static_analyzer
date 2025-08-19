@@ -40,18 +40,6 @@ void AnalysisData::addFunctionPointerAssignment(const FunctionPointerAssignment&
 void AnalysisData::addWrite(const WriteOperation& write) {
     std::lock_guard<std::mutex> lock(mutex);
     
-    // 更严格的去重：检查是否已经存在相同的写操作
-    // 基于目标、函数、文件、行号的组合进行去重
-    for (const auto& existing_write : all_writes) {
-        if (existing_write.target == write.target &&
-            existing_write.function == write.function &&
-            existing_write.file == write.file &&
-            existing_write.line == write.line &&
-            existing_write.ast_kind == write.ast_kind) {
-            return; // 已存在，跳过
-        }
-    }
-    
     all_writes.push_back(write);
 }
 
@@ -80,4 +68,53 @@ std::vector<std::string> AnalysisData::getFunctionPointerTargets(const std::stri
     std::lock_guard<std::mutex> lock(mutex);
     auto it = function_pointer_targets.find(pointer_name);
     return (it != function_pointer_targets.end()) ? it->second : std::vector<std::string>{};
+}
+
+// 新增方法实现
+
+void AnalysisData::addParameterSource(const ParameterSource& param_source) {
+    std::lock_guard<std::mutex> lock(mutex);
+    parameter_sources.push_back(param_source);
+    
+    std::string key = param_source.function_name + "::" + param_source.param_name;
+    param_to_globals[key].push_back(param_source.global_source);
+}
+
+void AnalysisData::addReturnValue(const ReturnValueInfo& return_info) {
+    std::lock_guard<std::mutex> lock(mutex);
+    return_values.push_back(return_info);
+    function_returns[return_info.function_name].push_back(return_info.returned_global);
+}
+
+void AnalysisData::addFunctionPointerParam(const FunctionPointerParamInfo& fp_param) {
+    std::lock_guard<std::mutex> lock(mutex);
+    fp_param_info.push_back(fp_param);
+}
+
+std::vector<std::string> AnalysisData::resolveParameterGlobals(
+    const std::string& function_name, const std::string& param_name) {
+    
+    std::lock_guard<std::mutex> lock(mutex);
+    std::string key = function_name + "::" + param_name;
+    
+    auto it = param_to_globals.find(key);
+    return (it != param_to_globals.end()) ? it->second : std::vector<std::string>{};
+}
+
+std::vector<std::string> AnalysisData::resolveFunctionReturns(const std::string& function_name) {
+    std::lock_guard<std::mutex> lock(mutex);
+    
+    auto it = function_returns.find(function_name);
+    return (it != function_returns.end()) ? it->second : std::vector<std::string>{};
+}
+
+void AnalysisData::buildCallChains() {
+    std::lock_guard<std::mutex> lock(mutex);
+    
+    // 构建调用链映射
+    for (const auto& [caller, callees] : call_graph) {
+        for (const auto& callee : callees) {
+            call_chains[caller].push_back(callee);
+        }
+    }
 }

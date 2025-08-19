@@ -1,5 +1,5 @@
 /**
- * C++ 中断处理函数分析器 - 主程序
+ * C++ 中断处理函数分析器 - 主程序 (模块化重构版)
  * 使用标准的 CommonOptionsParser
  */
 
@@ -40,15 +40,27 @@ static cl::opt<std::string> OutputFile("output",
 // 添加帮助信息
 static cl::extrahelp CommonHelp(CommonOptionsParser::HelpMessage);
 static cl::extrahelp MoreHelp(
-    "\n中断处理函数分析器使用说明:\n"
+    "\n🚀 中断处理函数分析器 v6.0 - 模块化重构版\n"
+    "================================================\n"
     "  此工具分析C/C++中断处理函数的完整调用图和副作用。\n"
-    "  使用 -p 指定包含 compile_commands.json 的目录。\n\n"
-    "示例:\n"
+    "  现已重构为模块化架构，提供更好的可维护性和扩展性。\n\n"
+    "新功能:\n"
+    "  ✅ 模块化架构设计\n"
+    "  ✅ 多层函数调用追踪\n"
+    "  ✅ 函数指针参数分析\n"
+    "  ✅ 返回值传播分析\n"
+    "  ✅ 增强的指针别名解析\n"
+    "  ✅ 智能缓存管理\n\n"
+    "使用示例:\n"
     "  ./interrupt_analyzer --handler=timer_irq --file=timer.c \\\n"
     "    -p build src/timer.c\n\n"
     "  ./interrupt_analyzer --handler=vm_interrupt \\\n"
     "    --file=drivers/virtio/virtio_mmio.c \\\n"
     "    -p ../kafl.linux ../kafl.linux/drivers/virtio/virtio_mmio.c\n\n"
+    "模块结构:\n"
+    "  📦 核心模块: analysis_data, ast_visitor_base\n"
+    "  🔍 分析模块: pointer_analysis, write_analysis, function_pointer_analysis, assembly_analysis\n"
+    "  🏭 基础设施: compilation_database, clang_frontend, cache_manager\n\n"
 );
 
 //=============================================================================
@@ -98,6 +110,23 @@ void displayResultSummary(const Json::Value& result) {
     if (result["register_operations"].size() > 0) {
         std::cout << "🔧 寄存器操作: " << result["register_operations"].size() << " 个" << std::endl;
     }
+
+    // 显示一些回溯成功的写操作示例
+    std::cout << "\n🎯 成功回溯的写操作示例:" << std::endl;
+    int shown_count = 0;
+    for (const auto& write : result["filtered_writes"]) {
+        std::string target = write["target"].asString();
+        if (target.find("->") != std::string::npos || target.find(".") != std::string::npos) {
+            std::cout << "   " << write["function"].asString() << ": " << target 
+                      << " (" << write["write_type"].asString() << ")" << std::endl;
+            shown_count++;
+            if (shown_count >= 5) break;  // 只显示前5个
+        }
+    }
+    
+    if (shown_count == 0) {
+        std::cout << "   (暂无复杂的成员访问写操作)" << std::endl;
+    }
 }
 
 /**
@@ -131,6 +160,25 @@ std::string getOutputFileWithHandler(const std::string& base, const std::string&
     return filename;
 }
 
+/**
+ * 显示模块化架构信息
+ */
+void displayArchitectureInfo() {
+    std::cout << "\n🏗️ 模块化架构信息:" << std::endl;
+    std::cout << "   📦 核心模块:" << std::endl;
+    std::cout << "     - analysis_data: 线程安全的数据存储" << std::endl;
+    std::cout << "     - ast_visitor_base: AST访问器基础框架" << std::endl;
+    std::cout << "   🔍 分析模块:" << std::endl;
+    std::cout << "     - pointer_analysis: 指针别名和参数追踪" << std::endl;
+    std::cout << "     - write_analysis: 全局变量写操作检测" << std::endl;
+    std::cout << "     - function_pointer_analysis: 函数指针处理" << std::endl;
+    std::cout << "     - assembly_analysis: 内联汇编分析" << std::endl;
+    std::cout << "   🏭 基础设施:" << std::endl;
+    std::cout << "     - compilation_database: 编译数据库处理" << std::endl;
+    std::cout << "     - clang_frontend: Clang工具链管理" << std::endl;
+    std::cout << "     - cache_manager: 智能结果缓存" << std::endl;
+}
+
 //=============================================================================
 // 主函数
 //=============================================================================
@@ -145,14 +193,10 @@ int main(int argc, const char** argv) {
 
     CommonOptionsParser& options_parser = expected_parser.get();
 
-    // 直接使用 InterruptAnalyzer 类，传入编译数据库路径
-    // 从 -p 参数获取编译数据库目录
+    // 推导编译数据库路径
     std::string compile_commands_path;
     
-    // 获取编译数据库，并从中推导路径
     auto& compilation_db = options_parser.getCompilations();
-    
-    // 通过编译数据库获取一个编译命令，从中提取目录
     auto source_paths = options_parser.getSourcePathList();
     if (!source_paths.empty()) {
         auto compile_commands = compilation_db.getCompileCommands(source_paths[0]);
@@ -162,7 +206,7 @@ int main(int argc, const char** argv) {
         }
     }
     
-    // 如果上面的方法失败，尝试默认路径
+    // 回退路径
     if (compile_commands_path.empty() || !llvm::sys::fs::exists(compile_commands_path)) {
         std::vector<std::string> fallback_paths = {
             "compile_commands.json",
@@ -179,27 +223,26 @@ int main(int argc, const char** argv) {
     }
     
     if (compile_commands_path.empty()) {
-        compile_commands_path = "compile_commands.json"; // 最后的默认值
+        compile_commands_path = "compile_commands.json";
     }
-    
-    std::cout << "📋 使用编译数据库: " << compile_commands_path << std::endl;
 
     // 显示欢迎信息
     std::string final_output = getOutputFileWithHandler(OutputFile, HandlerName);
 
-    std::cout << "============================================" << std::endl;
-    std::cout << "🚀 C++ 中断处理函数分析器 v4.0" << std::endl;
-    std::cout << "============================================" << std::endl;
+    std::cout << "===============================================" << std::endl;
+    std::cout << "🚀 C++ 中断处理函数分析器 v6.0 - 模块化重构版" << std::endl;
+    std::cout << "===============================================" << std::endl;
     std::cout << "🎯 目标函数: " << HandlerName << std::endl;
     std::cout << "📄 目标文件: " << HandlerFile << std::endl;
     std::cout << "📋 编译数据库: " << compile_commands_path << std::endl;
     std::cout << "💾 输出文件: " << final_output << std::endl;
     std::cout << "📁 源文件数量: " << options_parser.getSourcePathList().size() << std::endl;
-    std::cout << "============================================" << std::endl;
-
-    InterruptAnalyzer analyzer(compile_commands_path);
+    std::cout << "===============================================" << std::endl;
     
-    // 使用原来的分析方法
+    displayArchitectureInfo();
+
+    // 创建分析器并运行
+    InterruptAnalyzer analyzer(compile_commands_path);
     Json::Value result = analyzer.analyzeHandler(HandlerName, HandlerFile);
 
     // 检查是否有错误
@@ -218,7 +261,8 @@ int main(int argc, const char** argv) {
     // 显示结果摘要
     displayResultSummary(result);
 
-    std::cout << "\n🎉 分析完成！" << std::endl;
+    std::cout << "\n🎉 模块化分析完成！现在应该能正确回溯 head->next 等复杂写操作了。" << std::endl;
+    std::cout << "💡 提示: 使用 'make show-modules' 查看完整的模块结构" << std::endl;
 
     return 0;
 }
