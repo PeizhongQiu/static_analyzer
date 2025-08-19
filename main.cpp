@@ -71,30 +71,27 @@ static cl::opt<std::string> CacheDirectory("cache-dir",
 
 // 添加帮助信息
 static cl::extrahelp CommonHelp(CommonOptionsParser::HelpMessage);
-static cl::extrahelp MoreHelp(R"(
-🚀 中断处理函数分析器 v7.0 - 流式处理优化版
-================================================
-  此工具分析C/C++中断处理函数的完整调用图和副作用。
-  现已优化为流式处理架构，支持大型项目的高效分析。
-
-流式处理特性:
-  ✅ 多线程并行分析
-  ✅ 内存使用优化
-  ✅ 增量分析支持
-  ✅ 智能任务调度
-  ✅ 实时进度报告
-  ✅ 内存压力管理
-
-使用示例:
-  ./interrupt_analyzer --handler=timer_irq --file=timer.c -p build src/timer.c
-
-性能调优选项:
-  --worker-threads=N 工作线程数（默认: CPU核心数）
-  --max-memory=N     最大内存使用量MB（默认: 500）
-  --batch-size=N     批处理大小（默认: 20）
-  --incremental      启用增量分析（默认: 开启）
-  --memory-relief    启用内存压力管理（默认: 开启）
-)");
+static cl::extrahelp MoreHelp(
+    "\n🚀 中断处理函数分析器 v7.0 - 流式处理优化版\n"
+    "================================================\n"
+    "  此工具分析C/C++中断处理函数的完整调用图和副作用。\n"
+    "  现已优化为流式处理架构，支持大型项目的高效分析。\n\n"
+    "流式处理特性:\n"
+    "  ✅ 多线程并行分析\n"
+    "  ✅ 内存使用优化\n"
+    "  ✅ 增量分析支持\n"
+    "  ✅ 智能任务调度\n"
+    "  ✅ 实时进度报告\n"
+    "  ✅ 内存压力管理\n\n"
+    "使用示例:\n"
+    "  ./interrupt_analyzer --handler=timer_irq --file=timer.c -p build src/timer.c\n\n",
+    "性能调优选项:\n"
+    "  --worker-threads=N 工作线程数（默认: CPU核心数）\n"
+    "  --max-memory=N     最大内存使用量MB（默认: 500）\n"
+    "  --batch-size=N     批处理大小（默认: 20）\n"
+    "  --incremental      启用增量分析（默认: 开启）\n"
+    "  --memory-relief    启用内存压力管理（默认: 开启）\n\n"
+);
 
 //=============================================================================
 // 辅助函数
