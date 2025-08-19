@@ -1,6 +1,6 @@
 /**
  * C++ 中断处理函数分析器 - 主程序 (流式处理优化版)
- * 支持传统模式和流式处理模式
+ * 仅支持流式处理模式
  */
 
 #include "interrupt_analyzer.h"
@@ -39,12 +39,6 @@ static cl::opt<std::string> OutputFile("output",
     cl::init("analysis_result.json"),
     cl::cat(AnalyzerCategory));
 
-// 流式处理选项
-static cl::opt<bool> EnableStreaming("streaming",
-    cl::desc("Enable streaming processing mode"),
-    cl::init(true),
-    cl::cat(AnalyzerCategory));
-
 static cl::opt<unsigned> MaxWorkerThreads("worker-threads",
     cl::desc("Maximum number of worker threads"),
     cl::init(0), // 0 表示使用硬件并发数
@@ -77,35 +71,30 @@ static cl::opt<std::string> CacheDirectory("cache-dir",
 
 // 添加帮助信息
 static cl::extrahelp CommonHelp(CommonOptionsParser::HelpMessage);
-static cl::extrahelp MoreHelp(
-    "\n🚀 中断处理函数分析器 v7.0 - 流式处理优化版\n"
-    "================================================\n"
-    "  此工具分析C/C++中断处理函数的完整调用图和副作用。\n"
-    "  现已优化为流式处理架构，支持大型项目的高效分析。\n\n"
-    "流式处理特性:\n"
-    "  ✅ 多线程并行分析\n"
-    "  ✅ 内存使用优化\n"
-    "  ✅ 增量分析支持\n"
-    "  ✅ 智能任务调度\n"
-    "  ✅ 实时进度报告\n"
-    "  ✅ 内存压力管理\n\n"
-    "使用示例:\n"
-    "  # 流式处理模式（推荐）\n"
-    "  ./interrupt_analyzer --handler=timer_irq --file=timer.c \\\n"
-    "    --streaming --worker-threads=8 --max-memory=1024 \\\n"
-    "    -p build src/timer.c\n\n"
-    "  # 传统模式（兼容性）\n"
-    "  ./interrupt_analyzer --handler=vm_interrupt \\\n"
-    "    --file=drivers/virtio/virtio_mmio.c \\\n"
-    "    --no-streaming \\\n"
-    "    -p ../kafl.linux ../kafl.linux/drivers/virtio/virtio_mmio.c\n\n"
-    "性能调优选项:\n"
-    "  --worker-threads=N 工作线程数（默认: CPU核心数）\n"
-    "  --max-memory=N     最大内存使用量MB（默认: 500）\n"
-    "  --batch-size=N     批处理大小（默认: 20）\n"
-    "  --incremental      启用增量分析（默认: 开启）\n"
-    "  --memory-relief    启用内存压力管理（默认: 开启）\n\n"
-);
+static cl::extrahelp MoreHelp(R"(
+🚀 中断处理函数分析器 v7.0 - 流式处理优化版
+================================================
+  此工具分析C/C++中断处理函数的完整调用图和副作用。
+  现已优化为流式处理架构，支持大型项目的高效分析。
+
+流式处理特性:
+  ✅ 多线程并行分析
+  ✅ 内存使用优化
+  ✅ 增量分析支持
+  ✅ 智能任务调度
+  ✅ 实时进度报告
+  ✅ 内存压力管理
+
+使用示例:
+  ./interrupt_analyzer --handler=timer_irq --file=timer.c -p build src/timer.c
+
+性能调优选项:
+  --worker-threads=N 工作线程数（默认: CPU核心数）
+  --max-memory=N     最大内存使用量MB（默认: 500）
+  --batch-size=N     批处理大小（默认: 20）
+  --incremental      启用增量分析（默认: 开启）
+  --memory-relief    启用内存压力管理（默认: 开启）
+)");
 
 //=============================================================================
 // 辅助函数
@@ -132,24 +121,21 @@ StreamingConfig createStreamingConfig() {
 /**
  * 显示配置信息
  */
-void displayConfiguration(const StreamingConfig& config, bool streaming_mode) {
+void displayConfiguration(const StreamingConfig& config) {
     std::cout << "⚙️  分析配置:" << std::endl;
-    std::cout << "   处理模式: " << (streaming_mode ? "流式处理" : "传统批处理") << std::endl;
-    
-    if (streaming_mode) {
-        std::cout << "   工作线程: " << config.max_worker_threads << std::endl;
-        std::cout << "   内存限制: " << config.max_memory_mb << " MB" << std::endl;
-        std::cout << "   批处理大小: " << config.batch_size << std::endl;
-        std::cout << "   增量分析: " << (config.enable_incremental ? "启用" : "禁用") << std::endl;
-        std::cout << "   内存管理: " << (config.enable_memory_pressure_relief ? "启用" : "禁用") << std::endl;
-        std::cout << "   缓存目录: " << config.cache_directory << std::endl;
-    }
+    std::cout << "   处理模式: 流式处理" << std::endl;
+    std::cout << "   工作线程: " << config.max_worker_threads << std::endl;
+    std::cout << "   内存限制: " << config.max_memory_mb << " MB" << std::endl;
+    std::cout << "   批处理大小: " << config.batch_size << std::endl;
+    std::cout << "   增量分析: " << (config.enable_incremental ? "启用" : "禁用") << std::endl;
+    std::cout << "   内存管理: " << (config.enable_memory_pressure_relief ? "启用" : "禁用") << std::endl;
+    std::cout << "   缓存目录: " << config.cache_directory << std::endl;
 }
 
 /**
  * 显示结果摘要
  */
-void displayResultSummary(const Json::Value& result, bool streaming_mode) {
+void displayResultSummary(const Json::Value& result) {
     std::cout << "\n📊 分析结果摘要:" << std::endl;
     std::cout << "   可达函数: " << result["statistics"]["reachable_functions"].asInt() << std::endl;
 
@@ -160,17 +146,16 @@ void displayResultSummary(const Json::Value& result, bool streaming_mode) {
     std::cout << "   全局变量写操作: " << result["statistics"]["total_writes"].asInt() << std::endl;
     std::cout << "   寄存器操作: " << result["statistics"]["register_operations"].asInt() << std::endl;
 
-    // 流式处理特有统计
-    if (streaming_mode && result.isMember("streaming_stats")) {
+    if (result.isMember("streaming_stats")) {
         std::cout << "\n🚀 流式处理统计:" << std::endl;
         std::cout << "   总文件数: " << result["streaming_stats"]["total_files"].asInt() << std::endl;
         std::cout << "   缓存命中率: " << result["streaming_stats"]["cache_hit_rate"].asInt() << "%" << std::endl;
-        
+
         if (result["streaming_stats"]["throughput"].asDouble() > 0) {
-            std::cout << "   处理吞吐: " << std::fixed << std::setprecision(1) 
+            std::cout << "   处理吞吐: " << std::fixed << std::setprecision(1)
                       << result["streaming_stats"]["throughput"].asDouble() << " 文件/秒" << std::endl;
         }
-        
+
         std::cout << "   内存使用: " << result["streaming_stats"]["memory_usage_mb"].asInt() << " MB" << std::endl;
     }
 
@@ -232,14 +217,11 @@ bool saveResults(const Json::Value& result, const std::string& filename) {
 /**
  * 根据 handler 名生成输出文件名
  */
-std::string getOutputFileWithHandler(const std::string& base, const std::string& handler, bool streaming) {
+std::string getOutputFileWithHandler(const std::string& base, const std::string& handler) {
     std::string filename = base;
     auto pos = filename.rfind('.');
-    std::string suffix = "_" + handler;
-    if (streaming) {
-        suffix += "_streaming";
-    }
-    
+    std::string suffix = "_" + handler + "_streaming";
+
     if (pos != std::string::npos) {
         filename.insert(pos, suffix);
     } else {
@@ -329,10 +311,9 @@ int main(int argc, const char** argv) {
 
     // 创建配置
     StreamingConfig config = createStreamingConfig();
-    bool streaming_mode = EnableStreaming.getValue();
-    
+
     // 生成输出文件名
-    std::string final_output = getOutputFileWithHandler(OutputFile, HandlerName, streaming_mode);
+    std::string final_output = getOutputFileWithHandler(OutputFile, HandlerName);
 
     // 显示欢迎信息
     std::cout << "===============================================" << std::endl;
@@ -345,22 +326,16 @@ int main(int argc, const char** argv) {
     std::cout << "📁 源文件数量: " << options_parser.getSourcePathList().size() << std::endl;
     std::cout << "===============================================" << std::endl;
     
-    displayConfiguration(config, streaming_mode);
+    displayConfiguration(config);
 
     // 创建分析器
     InterruptAnalyzer analyzer(compile_commands_path, config);
-    
+
     Json::Value result;
     auto start_time = std::chrono::high_resolution_clock::now();
-    
-    // 根据模式选择分析方法
-    if (streaming_mode) {
-        std::cout << "\n🚀 启动流式处理模式..." << std::endl;
-        result = analyzer.analyzeHandlerStreaming(HandlerName, HandlerFile);
-    } else {
-        std::cout << "\n🔄 启动传统分析模式..." << std::endl;
-        result = analyzer.analyzeHandler(HandlerName, HandlerFile);
-    }
+
+    std::cout << "\n🚀 启动流式处理模式..." << std::endl;
+    result = analyzer.analyzeHandlerStreaming(HandlerName, HandlerFile);
     
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
@@ -374,7 +349,7 @@ int main(int argc, const char** argv) {
     // 添加性能指标到结果中
     result["performance_metrics"] = Json::Value();
     result["performance_metrics"]["total_time_ms"] = static_cast<int>(duration.count());
-    result["performance_metrics"]["processing_mode"] = streaming_mode ? "streaming" : "traditional";
+    result["performance_metrics"]["processing_mode"] = "streaming";
     
     // 保存结果
     if (saveResults(result, final_output)) {
@@ -384,22 +359,13 @@ int main(int argc, const char** argv) {
     }
 
     // 显示结果摘要
-    displayResultSummary(result, streaming_mode);
-    
-    // 显示性能建议
-    if (streaming_mode) {
-        displayPerformanceAdvice(result, config);
-    }
+    displayResultSummary(result);
 
-    std::cout << "\n🎉 " << (streaming_mode ? "流式" : "传统") << "分析完成！" 
-              << "总耗时: " << duration.count() << " ms" << std::endl;
-    
-    if (streaming_mode) {
-        std::cout << "💡 提示: 流式处理模式已优化内存使用和处理速度" << std::endl;
-        std::cout << "💡 提示: 使用 --no-streaming 可切换到传统模式进行对比" << std::endl;
-    } else {
-        std::cout << "💡 提示: 使用 --streaming 启用流式处理模式获得更好性能" << std::endl;
-    }
+    // 显示性能建议
+    displayPerformanceAdvice(result, config);
+
+    std::cout << "\n🎉 流式分析完成！" << "总耗时: " << duration.count() << " ms" << std::endl;
+    std::cout << "💡 提示: 流式处理模式已优化内存使用和处理速度" << std::endl;
 
     return 0;
 }
