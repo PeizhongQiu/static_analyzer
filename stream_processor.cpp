@@ -330,94 +330,99 @@ bool SingleFileAnalyzer::setupCompilationArgs(std::vector<std::string>& args) {
     return true;
 }
 
-// 移除 try-catch，使用简单的错误处理
 bool SingleFileAnalyzer::runClangAnalysis(const std::vector<std::string>& args) {
-    // 创建最简化的参数集，避免所有复杂的编译器内部参数
-    std::vector<std::string> minimal_args = {
-        "-std=gnu11",
-        "-w",
-        "-D__KERNEL__",
-        "-D__x86_64__",
-        "-fno-builtin"
-    };
-    
-    // 只从原始参数中提取包含路径和宏定义
-    for (const auto& arg : args) {
-        if ((arg.find("-I") == 0 || arg.find("-D") == 0) && 
-            arg != "-D__KERNEL__" && arg != "-D__x86_64__") {
-            // 避免重复添加
-            if (std::find(minimal_args.begin(), minimal_args.end(), arg) == minimal_args.end()) {
-                minimal_args.push_back(arg);
-            }
+    // 方法1：尝试使用 CompilationDatabase API
+    if (!compile_db_path.empty() && llvm::sys::fs::exists(compile_db_path)) {
+        std::string error_msg;
+        auto compilation_db = clang::tooling::CompilationDatabase::loadFromDirectory(
+            llvm::sys::path::parent_path(compile_db_path), error_msg);
+
+        if (!compilation_db) {
+            compilation_db = clang::tooling::CompilationDatabase::autoDetectFromDirectory(
+                llvm::sys::path::parent_path(compile_db_path), error_msg);
+        }
+
+        if (compilation_db) {
+            // 创建 ClangTool
+            clang::tooling::ClangTool tool(*compilation_db, {file_path});
+
+            // 添加参数调整器来清理选项（类似之前能跑的版本）
+            tool.appendArgumentsAdjuster([](const clang::tooling::CommandLineArguments& args, llvm::StringRef) {
+                clang::tooling::CommandLineArguments adjusted_args;
+                std::unordered_set<std::string> seen_options;
+
+                for (const auto& arg : args) {
+                    // 跳过重复的 --no-warn 选项
+                    if (arg == "--no-warn" || arg == "-w") {
+                        if (seen_options.find("no-warn") == seen_options.end()) {
+                            seen_options.insert("no-warn");
+                            adjusted_args.push_back("-w");
+                        }
+                        continue;
+                    }
+
+                    // 跳过其他可能导致问题的选项
+                    if (arg.find("--help") == 0 || arg.find("--version") == 0 ||
+                        arg.find("-march=") == 0 || arg.find("-mcpu=") == 0) {
+                        continue;
+                    }
+
+                    adjusted_args.push_back(arg);
+                }
+
+                return adjusted_args;
+            });
+
+            // 创建分析动作工厂
+            InterruptAnalysisActionFactory factory(local_data.get());
+
+            // 运行分析
+            int result = tool.run(&factory);
+            return result == 0;
         }
     }
-    
+
+    // 方法2：使用 FixedCompilationDatabase 作为后备
+    // 创建最简化的参数集
+    std::vector<std::string> minimal_args;
+
+    // 从输入参数中只提取必要的部分
+    for (const auto& arg : args) {
+        // 只保留标准选项、包含路径和宏定义
+        if (arg == "-std=gnu11" || arg == "-w" ||
+            arg == "-fno-builtin" || arg == "-nostdinc" ||
+            arg.find("-I") == 0 || arg.find("-D") == 0) {
+            minimal_args.push_back(arg);
+        }
+    }
+
+    // 确保有基本的参数
+    if (std::find(minimal_args.begin(), minimal_args.end(), "-std=gnu11") == minimal_args.end()) {
+        minimal_args.push_back("-std=gnu11");
+    }
+    if (std::find(minimal_args.begin(), minimal_args.end(), "-w") == minimal_args.end()) {
+        minimal_args.push_back("-w");
+    }
+
     // 添加文件路径
     minimal_args.push_back(file_path);
-    
+
     // 调试输出
     static bool debug_mode = std::getenv("DEBUG_ANALYZER") != nullptr;
     if (debug_mode) {
-        std::cout << "🎯 最终使用的参数 for " << llvm::sys::path::filename(file_path).str() << ":" << std::endl;
+        std::cout << "🎯 使用 FixedCompilationDatabase，参数:" << std::endl;
         for (size_t i = 0; i < minimal_args.size(); ++i) {
             std::cout << "  [" << i << "] " << minimal_args[i] << std::endl;
         }
     }
-    
+
     std::string working_dir = ".";
     clang::tooling::FixedCompilationDatabase db(working_dir, minimal_args);
     clang::tooling::ClangTool tool(db, {file_path});
-    
-    // 添加参数调整器，移除所有内部编译器参数
-    tool.appendArgumentsAdjuster([](const clang::tooling::CommandLineArguments& args, llvm::StringRef) {
-        clang::tooling::CommandLineArguments clean_args;
-        
-        for (const auto& arg : args) {
-            // 跳过所有内部编译器参数
-            if (arg.find("-cc1") == 0 ||
-                arg.find("-triple") == 0 ||
-                arg.find("-fsyntax-only") == 0 ||
-                arg.find("-emit-obj") == 0 ||
-                arg.find("-disable-") == 0 ||
-                arg.find("-clear-") == 0 ||
-                arg.find("-discard-") == 0 ||
-                arg.find("-main-file-name") == 0 ||
-                arg.find("-mrelocation-model") == 0 ||
-                arg.find("-pic-") == 0 ||
-                arg.find("-mframe-pointer") == 0 ||
-                arg.find("-fmath-errno") == 0 ||
-                arg.find("-ffp-contract") == 0 ||
-                arg.find("-fno-rounding-math") == 0 ||
-                arg.find("-mconstructor-aliases") == 0 ||
-                arg.find("-funwind-tables") == 0 ||
-                arg.find("-target-cpu") == 0 ||
-                arg.find("-tune-cpu") == 0 ||
-                arg.find("-mllvm") == 0 ||
-                arg.find("-treat-scalable") == 0 ||
-                arg.find("-debugger-tuning") == 0 ||
-                arg.find("-fcoverage-compilation-dir") == 0 ||
-                arg.find("-resource-dir") == 0 ||
-                arg.find("-internal-") == 0 ||
-                arg.find("-fdebug-compilation-dir") == 0 ||
-                arg.find("-ferror-limit") == 0 ||
-                arg.find("-fgnuc-version") == 0 ||
-                arg.find("-fcolor-diagnostics") == 0 ||
-                arg.find("-vectorize-") == 0 ||
-                arg.find("-faddrsig") == 0 ||
-                arg.find("-mrelax-relocations") == 0 ||
-                arg == "-x" || arg == "c") {
-                continue;
-            }
-            
-            clean_args.push_back(arg);
-        }
-        
-        return clean_args;
-    });
-    
+
     // 创建分析动作工厂
     InterruptAnalysisActionFactory factory(local_data.get());
-    
+
     // 运行分析
     int result = tool.run(&factory);
     return result == 0;
