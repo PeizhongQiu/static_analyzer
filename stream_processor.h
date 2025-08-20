@@ -1,4 +1,4 @@
-// stream_processor.h - 流式处理核心组件
+// stream_processor.h - 修复版本，添加缺失的方法声明
 #ifndef STREAM_PROCESSOR_H
 #define STREAM_PROCESSOR_H
 
@@ -128,7 +128,7 @@ private:
 };
 
 /**
- * 单文件分析器
+ * 单文件分析器 - 修复版本
  */
 class SingleFileAnalyzer {
 private:
@@ -149,6 +149,13 @@ private:
     bool setupCompilationArgs(std::vector<std::string>& args);
     bool runClangAnalysis(const std::vector<std::string>& args);
     static CompilationDatabaseProcessor* getSharedDbProcessor(const std::string& compile_db_path);
+    
+    // 新增的编译参数处理方法
+    std::vector<std::string> cleanCompilationArgs(const std::vector<std::string>& original_args, 
+                                                  const std::string& working_dir);
+    bool shouldSkipArg(const std::string& arg);
+    bool isUsefulArg(const std::string& arg);
+    std::vector<std::string> getMinimalCompilationArgs();
 };
 
 /**
@@ -194,7 +201,7 @@ private:
 };
 
 /**
- * 任务调度器
+ * 任务调度器 - 改进版本
  */
 class TaskScheduler {
 public:

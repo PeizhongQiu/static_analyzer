@@ -41,17 +41,17 @@ static cl::opt<std::string> OutputFile("output",
 
 static cl::opt<unsigned> MaxWorkerThreads("worker-threads",
     cl::desc("Maximum number of worker threads"),
-    cl::init(0), // 0 表示使用硬件并发数
+    cl::init(8), // 降低默认线程数到8
     cl::cat(AnalyzerCategory));
 
 static cl::opt<unsigned> MaxMemoryMB("max-memory",
     cl::desc("Maximum memory usage in MB"),
-    cl::init(500*1024),
+    cl::init(1024), // 提高默认内存
     cl::cat(AnalyzerCategory));
 
 static cl::opt<unsigned> BatchSize("batch-size",
     cl::desc("Batch size for streaming processing"),
-    cl::init(20),
+    cl::init(10), // 降低默认批处理大小
     cl::cat(AnalyzerCategory));
 
 static cl::opt<bool> EnableIncremental("incremental",
@@ -84,11 +84,11 @@ static cl::extrahelp MoreHelp(
     "  ✅ 实时进度报告\n"
     "  ✅ 内存压力管理\n\n"
     "使用示例:\n"
-    "  ./interrupt_analyzer --handler=timer_irq --file=timer.c -p build src/timer.c\n\n",
+    "  ./interrupt_analyzer_fixed --handler=vm_interrupt --file=vm.c -p build src/\n\n"
     "性能调优选项:\n"
-    "  --worker-threads=N 工作线程数（默认: CPU核心数）\n"
-    "  --max-memory=N     最大内存使用量MB（默认: 500）\n"
-    "  --batch-size=N     批处理大小（默认: 20）\n"
+    "  --worker-threads=N 工作线程数（默认: 8）\n"
+    "  --max-memory=N     最大内存使用量MB（默认: 1024）\n"
+    "  --batch-size=N     批处理大小（默认: 10）\n"
     "  --incremental      启用增量分析（默认: 开启）\n"
     "  --memory-relief    启用内存压力管理（默认: 开启）\n\n"
 );
@@ -103,14 +103,37 @@ static cl::extrahelp MoreHelp(
 StreamingConfig createStreamingConfig() {
     StreamingConfig config;
     
-    if (MaxWorkerThreads.getValue() > 0) {
-        config.max_worker_threads = MaxWorkerThreads.getValue();
+    // 获取请求的线程数并进行严格限制
+    unsigned requested_threads = MaxWorkerThreads.getValue();
+    
+    // 强制限制线程数
+    if (requested_threads == 0 || requested_threads > 16) {
+        requested_threads = 8; // 强制默认8个线程
     }
+    
+    // 获取硬件并发数
+    unsigned hw_concurrency = std::thread::hardware_concurrency();
+    if (hw_concurrency == 0) {
+        hw_concurrency = 8; // 如果检测失败，默认8个线程
+    }
+    
+    // 最终线程数：不超过8，不超过硬件核心数
+    unsigned final_threads = std::min({
+        requested_threads, 
+        hw_concurrency, 
+        8u  // 强制最大8个线程
+    });
+    
+    config.max_worker_threads = static_cast<size_t>(final_threads);
     config.max_memory_mb = MaxMemoryMB.getValue();
     config.batch_size = BatchSize.getValue();
     config.enable_incremental = EnableIncremental.getValue();
     config.enable_memory_pressure_relief = EnableMemoryPressureRelief.getValue();
     config.cache_directory = CacheDirectory.getValue();
+    
+    // 调试输出，确认配置生效
+    std::cout << "🔧 配置线程数: 请求=" << MaxWorkerThreads.getValue() 
+              << ", 最终=" << config.max_worker_threads << std::endl;
     
     return config;
 }
@@ -325,7 +348,8 @@ int main(int argc, const char** argv) {
     
     displayConfiguration(config);
 
-    // 创建分析器
+    // 创建分析器并强制检查配置
+    std::cout << "🔧 实际创建的配置线程数: " << config.max_worker_threads << std::endl;
     InterruptAnalyzer analyzer(compile_commands_path, config);
 
     Json::Value result;

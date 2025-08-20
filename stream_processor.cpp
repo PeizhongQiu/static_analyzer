@@ -1,4 +1,8 @@
-// stream_processor.cpp - 流式处理核心实现
+// 在 CompilationDatabaseProcessor 类中添加新方法声明（需要在 compilation_database.h 中添加）
+    
+    // 新的处理方法，应该在 compilation_database.h 中声明：
+    // std::vector<std::string> parseComplexCommand(const std::string& command);
+    // std::vector<std::string> splitCommand(const std::string& command);// stream_processor.cpp - 完整修复版本
 #include "stream_processor.h"
 #include "clang_frontend.h"
 #include "compilation_database.h"
@@ -12,8 +16,9 @@
 #include <fstream>
 #include <iomanip>
 #include <algorithm>
+#include <sstream>
 
-// 静态成员变量定义 - 必须在全局作用域中定义
+// 静态成员变量定义
 std::unique_ptr<CompilationDatabaseProcessor> SingleFileAnalyzer::shared_db_processor = nullptr;
 std::mutex SingleFileAnalyzer::db_processor_mutex;
 
@@ -243,7 +248,7 @@ size_t StreamProcessor::getCurrentMemoryUsage() const {
 }
 
 //=============================================================================
-// SingleFileAnalyzer 实现
+// SingleFileAnalyzer 实现 - 修复版本
 //=============================================================================
 
 SingleFileAnalyzer::SingleFileAnalyzer(const std::string& file, const std::string& compile_db)
@@ -273,31 +278,9 @@ bool SingleFileAnalyzer::analyze() {
 }
 
 bool SingleFileAnalyzer::setupCompilationArgs(std::vector<std::string>& args) {
-    // 首先检查文件是否存在
+    // 检查文件是否存在
     if (!llvm::sys::fs::exists(file_path)) {
-        // 如果文件不存在，尝试相对于编译数据库目录查找
-        if (!compile_db_path.empty()) {
-            auto* db_processor = getSharedDbProcessor(compile_db_path);
-            if (db_processor) {
-                const auto& commands = db_processor->getCommands();
-                for (const auto& cmd : commands) {
-                    if (cmd.file == file_path) {
-                        // 尝试使用编译命令中的目录
-                        std::string alternative_path = cmd.directory + "/" + llvm::sys::path::filename(file_path).str();
-                        if (llvm::sys::fs::exists(alternative_path)) {
-                            // 更新文件路径
-                            const_cast<std::string&>(file_path) = alternative_path;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        
-        // 如果仍然找不到文件，返回失败
-        if (!llvm::sys::fs::exists(file_path)) {
-            return false;
-        }
+        return false;
     }
     
     // 使用共享的编译数据库处理器
@@ -310,51 +293,24 @@ bool SingleFileAnalyzer::setupCompilationArgs(std::vector<std::string>& args) {
                 if (cmd.file == file_path || 
                     llvm::sys::path::filename(cmd.file) == llvm::sys::path::filename(file_path)) {
                     
-                    // 找到了对应的编译命令，使用其参数
-                    args = cmd.arguments;
-                    
-                    // 移除编译器名称（通常是第一个参数）
-                    if (!args.empty() && (args[0].find("gcc") != std::string::npos || 
-                                         args[0].find("clang") != std::string::npos ||
-                                         args[0].find("cc") != std::string::npos)) {
-                        args.erase(args.begin());
-                    }
-                    
-                    // 移除输出文件相关的参数
-                    auto it = args.begin();
-                    while (it != args.end()) {
-                        if (*it == "-o") {
-                            it = args.erase(it);
-                            // 删除输出文件名
-                            if (it != args.end()) {
-                                it = args.erase(it);
-                            }
-                        } else if (*it == "-c") {
-                            it = args.erase(it);
-                        } else {
-                            ++it;
+                    // 调试输出：显示原始参数
+                    static bool debug_mode = std::getenv("DEBUG_ANALYZER") != nullptr;
+                    if (debug_mode) {
+                        std::cout << "🔍 原始编译参数 for " << llvm::sys::path::filename(file_path).str() << ":" << std::endl;
+                        for (size_t i = 0; i < cmd.arguments.size(); ++i) {
+                            std::cout << "  [" << i << "] " << cmd.arguments[i] << std::endl;
                         }
                     }
                     
-                    // 修复相对路径问题 - 添加工作目录
-                    std::string working_dir = cmd.directory;
-                    if (!working_dir.empty()) {
-                        // 添加工作目录到包含路径
-                        args.insert(args.begin(), "-I" + working_dir);
-                        args.insert(args.begin(), "-I" + working_dir + "/include");
-                    }
+                    // 找到了对应的编译命令，清理和规范化参数
+                    args = cleanCompilationArgs(cmd.arguments, cmd.directory);
                     
-                    // 确保文件路径正确
-                    bool found_file_arg = false;
-                    for (auto& arg : args) {
-                        if (arg == cmd.file || llvm::sys::path::filename(arg) == llvm::sys::path::filename(file_path)) {
-                            arg = file_path; // 使用实际存在的文件路径
-                            found_file_arg = true;
-                            break;
+                    // 调试输出：显示清理后的参数
+                    if (debug_mode) {
+                        std::cout << "🔧 清理后的编译参数:" << std::endl;
+                        for (size_t i = 0; i < args.size(); ++i) {
+                            std::cout << "  [" << i << "] " << args[i] << std::endl;
                         }
-                    }
-                    if (!found_file_arg) {
-                        args.push_back(file_path);
                     }
                     
                     return true;
@@ -363,69 +319,100 @@ bool SingleFileAnalyzer::setupCompilationArgs(std::vector<std::string>& args) {
             
             // 如果没找到特定文件的命令，使用通用选项
             auto common_opts = db_processor->getCommonCompileOptions();
-            args = common_opts;
+            args = cleanCompilationArgs(common_opts, ".");
             args.push_back(file_path);
             return true;
         }
     }
     
     // 如果没有编译数据库，使用最小的参数集
-    args = {
-        "-std=c++17",
-        "-w",  // 抑制警告
-        file_path
-    };
-    
+    args = getMinimalCompilationArgs();
     return true;
 }
 
+// 移除 try-catch，使用简单的错误处理
 bool SingleFileAnalyzer::runClangAnalysis(const std::vector<std::string>& args) {
-    // 创建固定的编译数据库 - 使用正确的构造方法
+    // 创建最简化的参数集，避免所有复杂的编译器内部参数
+    std::vector<std::string> minimal_args = {
+        "-std=gnu11",
+        "-w",
+        "-D__KERNEL__",
+        "-D__x86_64__",
+        "-fno-builtin"
+    };
+    
+    // 只从原始参数中提取包含路径和宏定义
+    for (const auto& arg : args) {
+        if ((arg.find("-I") == 0 || arg.find("-D") == 0) && 
+            arg != "-D__KERNEL__" && arg != "-D__x86_64__") {
+            // 避免重复添加
+            if (std::find(minimal_args.begin(), minimal_args.end(), arg) == minimal_args.end()) {
+                minimal_args.push_back(arg);
+            }
+        }
+    }
+    
+    // 添加文件路径
+    minimal_args.push_back(file_path);
+    
+    // 调试输出
+    static bool debug_mode = std::getenv("DEBUG_ANALYZER") != nullptr;
+    if (debug_mode) {
+        std::cout << "🎯 最终使用的参数 for " << llvm::sys::path::filename(file_path).str() << ":" << std::endl;
+        for (size_t i = 0; i < minimal_args.size(); ++i) {
+            std::cout << "  [" << i << "] " << minimal_args[i] << std::endl;
+        }
+    }
+    
     std::string working_dir = ".";
-    clang::tooling::FixedCompilationDatabase db(working_dir, args);
+    clang::tooling::FixedCompilationDatabase db(working_dir, minimal_args);
     clang::tooling::ClangTool tool(db, {file_path});
     
-    // 添加参数调整器来处理问题参数
+    // 添加参数调整器，移除所有内部编译器参数
     tool.appendArgumentsAdjuster([](const clang::tooling::CommandLineArguments& args, llvm::StringRef) {
-        clang::tooling::CommandLineArguments adjusted_args;
+        clang::tooling::CommandLineArguments clean_args;
+        
         for (const auto& arg : args) {
-            // 跳过会导致clang工具问题的参数
-            if (arg.find("--help") == 0 || arg.find("--version") == 0 ||
-                arg.find("-march=native") != std::string::npos ||
-                arg.find("-mcpu=native") != std::string::npos ||
-                arg == "-pipe" || arg == "-fstack-protector-strong" ||
-                arg.find("-flto") == 0 ||
-                arg.find("-fno-semantic-interposition") == 0) {
+            // 跳过所有内部编译器参数
+            if (arg.find("-cc1") == 0 ||
+                arg.find("-triple") == 0 ||
+                arg.find("-fsyntax-only") == 0 ||
+                arg.find("-emit-obj") == 0 ||
+                arg.find("-disable-") == 0 ||
+                arg.find("-clear-") == 0 ||
+                arg.find("-discard-") == 0 ||
+                arg.find("-main-file-name") == 0 ||
+                arg.find("-mrelocation-model") == 0 ||
+                arg.find("-pic-") == 0 ||
+                arg.find("-mframe-pointer") == 0 ||
+                arg.find("-fmath-errno") == 0 ||
+                arg.find("-ffp-contract") == 0 ||
+                arg.find("-fno-rounding-math") == 0 ||
+                arg.find("-mconstructor-aliases") == 0 ||
+                arg.find("-funwind-tables") == 0 ||
+                arg.find("-target-cpu") == 0 ||
+                arg.find("-tune-cpu") == 0 ||
+                arg.find("-mllvm") == 0 ||
+                arg.find("-treat-scalable") == 0 ||
+                arg.find("-debugger-tuning") == 0 ||
+                arg.find("-fcoverage-compilation-dir") == 0 ||
+                arg.find("-resource-dir") == 0 ||
+                arg.find("-internal-") == 0 ||
+                arg.find("-fdebug-compilation-dir") == 0 ||
+                arg.find("-ferror-limit") == 0 ||
+                arg.find("-fgnuc-version") == 0 ||
+                arg.find("-fcolor-diagnostics") == 0 ||
+                arg.find("-vectorize-") == 0 ||
+                arg.find("-faddrsig") == 0 ||
+                arg.find("-mrelax-relocations") == 0 ||
+                arg == "-x" || arg == "c") {
                 continue;
             }
             
-            // 修复相对路径的包含文件
-            if (arg.find("-I./include") == 0) {
-                llvm::SmallString<256> current_path;
-                if (!llvm::sys::fs::current_path(current_path)) {
-                    adjusted_args.push_back("-I" + current_path.str().str() + "/include");
-                } else {
-                    adjusted_args.push_back(arg); // 如果获取当前路径失败，保持原参数
-                }
-                continue;
-            }
-            
-            adjusted_args.push_back(arg);
+            clean_args.push_back(arg);
         }
         
-        // 确保有警告抑制标志
-        bool has_w_flag = false;
-        for (const auto& arg : adjusted_args) {
-            if (arg == "-w" || arg == "-Wno-all") {
-                has_w_flag = true;
-                break;
-            }
-        }
-        if (!has_w_flag) {
-            adjusted_args.push_back("-w");
-        }
-        
-        return adjusted_args;
+        return clean_args;
     });
     
     // 创建分析动作工厂
@@ -434,6 +421,170 @@ bool SingleFileAnalyzer::runClangAnalysis(const std::vector<std::string>& args) 
     // 运行分析
     int result = tool.run(&factory);
     return result == 0;
+}
+
+std::vector<std::string> SingleFileAnalyzer::cleanCompilationArgs(
+    const std::vector<std::string>& original_args, const std::string& working_dir) {
+    
+    std::vector<std::string> cleaned_args;
+    
+    // 添加基础的 C 参数
+    cleaned_args.push_back("-std=gnu11");
+    cleaned_args.push_back("-w"); // 抑制所有警告
+    cleaned_args.push_back("-fno-builtin");
+    
+    // 添加必要的内核包含路径
+    if (!working_dir.empty()) {
+        cleaned_args.push_back("-I" + working_dir + "/include");
+        cleaned_args.push_back("-I" + working_dir + "/arch/x86/include");
+        cleaned_args.push_back("-I" + working_dir + "/arch/x86/include/generated");
+        cleaned_args.push_back("-I" + working_dir + "/include/generated");
+    }
+    
+    // 添加基础的内核定义
+    cleaned_args.push_back("-D__KERNEL__");
+    cleaned_args.push_back("-D__x86_64__");
+    
+    // 从原始参数中提取有用的部分
+    for (size_t i = 0; i < original_args.size(); ++i) {
+        const std::string& arg = original_args[i];
+        
+        // 跳过编译器名称
+        if (i == 0 && (arg.find("gcc") != std::string::npos || 
+                      arg.find("clang") != std::string::npos ||
+                      arg.find("cc") != std::string::npos)) {
+            continue;
+        }
+        
+        // 跳过输出文件参数
+        if (arg == "-o") {
+            if (i + 1 < original_args.size()) {
+                ++i; // 跳过输出文件名
+            }
+            continue;
+        }
+        
+        // 跳过源文件参数（应该在最后添加我们的文件路径）
+        if (arg.find(".c") != std::string::npos && arg.find("-") != 0) {
+            continue;
+        }
+        
+        // 跳过问题参数
+        if (shouldSkipArg(arg)) {
+            // 某些参数有值，需要跳过下一个参数
+            if (arg == "-MF" || arg == "-MT" || arg == "-MQ" ||
+                arg == "-dependency-file" || arg == "-resource-dir") {
+                if (i + 1 < original_args.size()) {
+                    ++i; // 跳过参数值
+                }
+            }
+            continue;
+        }
+        
+        // 包含有用的参数
+        if (isUsefulArg(arg)) {
+            // 修正包含路径
+            if (arg.find("-I") == 0 && arg.length() > 2) {
+                std::string include_path = arg.substr(2);
+                if (!llvm::sys::path::is_absolute(include_path) && !working_dir.empty()) {
+                    include_path = working_dir + "/" + include_path;
+                }
+                cleaned_args.push_back("-I" + include_path);
+            } else {
+                cleaned_args.push_back(arg);
+            }
+        }
+    }
+    
+    // 确保文件路径在最后
+    cleaned_args.push_back(file_path);
+    
+    return cleaned_args;
+}
+
+bool SingleFileAnalyzer::shouldSkipArg(const std::string& arg) {
+    // 跳过会导致问题的参数
+    if (arg == "-c" || arg == "-pipe" || 
+        arg.find("-Wp,") == 0 ||  // 跳过预处理器选项如 -Wp,-MMD,...
+        arg.find("-MMD") == 0 || arg == "-MP" ||
+        arg == "-o" || arg == "-MF" || arg == "-MT" || arg == "-MQ" ||
+        arg.find("-march=native") != std::string::npos ||
+        arg.find("-mcpu=native") != std::string::npos ||
+        arg.find("-mtune=") == 0 ||
+        arg.find("-fstack-protector") == 0 ||
+        arg.find("-flto") == 0 ||
+        arg.find("-fno-semantic-interposition") == 0 ||
+        arg.find("-fcf-protection") == 0 ||
+        arg.find("-mindirect-branch") == 0 ||
+        arg.find("-mfunction-return") == 0 ||
+        arg.find("-fzero-call-used-regs") == 0 ||
+        arg.find("-mrecord-mcount") == 0 ||
+        arg.find("-pg") == 0 ||
+        arg.find("-mfentry") == 0 ||
+        arg.find("-DCC_USING_FENTRY") == 0 ||
+        arg == "--help" || arg == "--version" ||
+        arg == "-v" || arg == "-###" ||
+        // 跳过优化相关的可能有问题的参数
+        arg == "-fomit-frame-pointer" ||
+        // 跳过特殊架构和目标相关参数
+        arg.find("-triple") == 0 ||
+        arg.find("-target-cpu") == 0 ||
+        arg.find("-target-feature") == 0 ||
+        arg.find("-mrelocation-model") == 0 ||
+        arg.find("-mregparm") == 0 ||
+        arg.find("-mstack-alignment") == 0 ||
+        arg.find("-relaxed-aliasing") == 0 ||
+        arg.find("-ffreestanding") == 0 ||
+        arg.find("-nostdsysteminc") == 0 ||
+        arg.find("-nobuiltininc") == 0 ||
+        arg.find("-dependency-file") == 0 ||
+        arg.find("-fdebug-compilation-dir") == 0 ||
+        arg.find("-fcoverage-compilation-dir") == 0 ||
+        arg.find("-fmacro-prefix-map") == 0 ||
+        arg.find("-debug-info-kind") == 0 ||
+        arg.find("-dwarf-version") == 0 ||
+        arg.find("-debugger-tuning") == 0 ||
+        arg.find("-ferror-limit") == 0 ||
+        arg.find("-fgnuc-version") == 0 ||
+        arg.find("-fcolor-diagnostics") == 0 ||
+        arg.find("-vectorize") == 0 ||
+        arg.find("-faddrsig") == 0 ||
+        arg.find("-mllvm") == 0 ||
+        arg.find("-treat-scalable") == 0 ||
+        arg.find("-disable-") == 0 ||
+        arg.find("-clear-ast") == 0 ||
+        arg.find("-discard-value") == 0 ||
+        arg.find("-main-file-name") == 0 ||
+        // 跳过错误相关的严格检查
+        arg.find("-Werror=") == 0) {
+        return true;
+    }
+    
+    return false;
+}
+
+bool SingleFileAnalyzer::isUsefulArg(const std::string& arg) {
+    // 包含有用的 C 编译参数
+    return (arg.find("-I") == 0 || arg.find("-D") == 0 || 
+            arg.find("-U") == 0 || arg.find("-include") == 0 ||
+            arg == "-std=gnu11" || arg == "-std=c11" || arg == "-std=gnu99" || arg == "-std=c99" ||
+            (arg.find("-W") == 0 && arg != "-Werror") || // 包含警告选项但排除 -Werror
+            arg.find("-f") == 0 ||
+            arg.find("-m") == 0 || arg.find("-O") == 0);
+}
+
+std::vector<std::string> SingleFileAnalyzer::getMinimalCompilationArgs() {
+    return {
+        "-std=gnu11",           // 使用 GNU C11 标准
+        "-w",                   // 抑制警告
+        "-D__KERNEL__",         // 内核宏定义
+        "-DMODULE",            // 模块宏定义
+        "-D__x86_64__",        // 架构定义
+        "-fno-builtin",        // 禁用内建函数
+        "-nostdinc",           // 不使用标准包含路径
+        "-fno-strict-aliasing", // 禁用严格别名
+        file_path
+    };
 }
 
 void SingleFileAnalyzer::extractResults(FileAnalysisResult& result) {
@@ -475,13 +626,13 @@ void FileResultAggregator::onFileResult(const FileAnalysisResult& result) {
 }
 
 void FileResultAggregator::onProgress(float progress, const std::string& current_file) {
-    // 进度报告 - 每10%报告一次
+    // 进度报告 - 每5%报告一次，减少输出
     static int last_percent = -1;
     int current_percent = static_cast<int>(progress * 100);
     
-    if (current_percent != last_percent && current_percent % 10 == 0) {
-        std::cout << "📊 流式分析进度: " << current_percent << "% [" 
-                  << llvm::sys::path::filename(current_file).str() << "]" << std::endl;
+    if (current_percent != last_percent && current_percent % 5 == 0) {
+        std::cout << "📊 流式分析进度: " << current_percent << "% [处理中: " 
+                  << processed_count << " 文件]" << std::endl;
         last_percent = current_percent;
     }
 }
@@ -489,17 +640,14 @@ void FileResultAggregator::onProgress(float progress, const std::string& current
 void FileResultAggregator::onError(const std::string& file_path, const std::string& error) {
     error_count++;
     
-    // 只在调试模式下显示详细错误，否则只显示简要信息
+    // 只在调试模式下显示详细错误
     static bool debug_mode = std::getenv("DEBUG_ANALYZER") != nullptr;
     
-    if (debug_mode) {
+    if (debug_mode && error_count <= 20) { // 最多显示20个详细错误
         std::cerr << "❌ 文件分析错误 [" << llvm::sys::path::filename(file_path).str() 
                   << "]: " << error << std::endl;
-    } else {
-        // 简要错误信息，避免刷屏
-        if (error_count % 10 == 1) { // 每10个错误显示一次汇总
-            std::cout << "⚠️ 跳过 " << error_count << " 个无法分析的文件..." << std::endl;
-        }
+    } else if (error_count % 100 == 1) { // 每100个错误显示一次汇总
+        std::cout << "⚠️ 已跳过 " << error_count << " 个无法分析的文件（编译错误等）" << std::endl;
     }
 }
 
@@ -511,8 +659,12 @@ void FileResultAggregator::onComplete() {
     std::cout << "   成功处理: " << processed_count << " 个文件" << std::endl;
     
     if (error_count > 0) {
-        std::cout << "   跳过文件: " << error_count << " 个（编译错误或不支持的文件）" << std::endl;
-        std::cout << "   💡 提示: 设置环境变量 DEBUG_ANALYZER=1 查看详细错误信息" << std::endl;
+        float error_rate = (float)error_count / (processed_count + error_count) * 100;
+        std::cout << "   跳过文件: " << error_count << " 个 (" 
+                  << std::fixed << std::setprecision(1) << error_rate << "%)" << std::endl;
+        if (error_rate > 20) {
+            std::cout << "   💡 提示: 大量文件跳过可能是编译配置问题，设置 DEBUG_ANALYZER=1 查看详情" << std::endl;
+        }
     }
 }
 
@@ -659,11 +811,6 @@ std::vector<StreamingTask> TaskScheduler::createTasks(const std::vector<std::str
             // 如果仍然找不到，跳过这个文件
             if (!llvm::sys::fs::exists(resolved_path)) {
                 not_found_count++;
-                // 在调试模式下显示找不到的文件
-                static bool debug_mode = std::getenv("DEBUG_ANALYZER") != nullptr;
-                if (debug_mode && not_found_count <= 10) { // 只显示前10个
-                    std::cout << "⚠️ 文件不存在: " << file << std::endl;
-                }
                 continue;
             }
         }
@@ -686,13 +833,9 @@ std::vector<StreamingTask> TaskScheduler::createTasks(const std::vector<std::str
     
     std::cout << "📋 文件过滤统计:" << std::endl;
     std::cout << "   总文件数: " << files.size() << std::endl;
-    std::cout << "   有效 C/C++ 文件: " << tasks.size() << std::endl;
-    std::cout << "   跳过（非源文件）: " << skipped_count << std::endl;
+    std::cout << "   有效 C 文件: " << tasks.size() << std::endl;
+    std::cout << "   跳过（非 C 文件）: " << skipped_count << std::endl;
     std::cout << "   跳过（文件不存在）: " << not_found_count << std::endl;
-    
-    if (not_found_count > 10) {
-        std::cout << "   💡 提示: 设置 DEBUG_ANALYZER=1 查看缺失文件详情" << std::endl;
-    }
     
     return tasks;
 }
@@ -711,22 +854,26 @@ std::string TaskScheduler::calculateFileHash(const std::string& file_path) {
 }
 
 bool TaskScheduler::shouldSkipFile(const std::string& file_path) {
-    // 只处理 C/C++ 源文件
+    // 只处理 C 源文件
     std::string ext = llvm::sys::path::extension(file_path).str();
     std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
     
-    // 只接受这些扩展名的文件
-    static const std::vector<std::string> valid_extensions = {
-        ".c", ".cc", ".cpp", ".cxx", ".c++", ".C"
-    };
-    
-    bool is_valid_ext = std::find(valid_extensions.begin(), valid_extensions.end(), ext) != valid_extensions.end();
-    if (!is_valid_ext) {
-        return true; // 跳过非 C/C++ 文件
+    // 只接受 .c 文件
+    if (ext != ".c") {
+        return true; // 跳过非 C 文件
     }
     
-    // 检查文件是否实际存在
-    if (!llvm::sys::fs::exists(file_path)) {
+    // 临时跳过已知有问题的文件，直到我们修复参数处理
+    std::string filename = llvm::sys::path::filename(file_path).str();
+    std::transform(filename.begin(), filename.end(), filename.begin(), ::tolower);
+    
+    // 跳过构建工具相关的文件
+    if (filename.find("sumversion") != std::string::npos ||
+        filename.find("devicetable") != std::string::npos ||
+        filename.find("asm-offsets") != std::string::npos ||
+        filename.find("bounds") != std::string::npos ||
+        file_path.find("/scripts/") != std::string::npos ||
+        file_path.find("/tools/") != std::string::npos) {
         return true;
     }
     
@@ -734,6 +881,5 @@ bool TaskScheduler::shouldSkipFile(const std::string& file_path) {
 }
 
 bool TaskScheduler::isCppSourceFile(const std::string& file_path) {
-    // 这个函数现在和shouldSkipFile逻辑一致，但保持为了兼容性
     return !shouldSkipFile(file_path);
 }
