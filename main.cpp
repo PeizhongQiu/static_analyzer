@@ -6,6 +6,8 @@
 #include "interrupt_analyzer.h"
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/FileSystem.h>
+#include <llvm/Support/Path.h>
+#include <llvm/ADT/SmallString.h>
 #include <clang/Tooling/CommonOptionsParser.h>
 #include <iostream>
 #include <fstream>
@@ -372,11 +374,16 @@ int main(int argc, const char** argv) {
     result["performance_metrics"]["total_time_ms"] = static_cast<int>(duration.count());
     result["performance_metrics"]["processing_mode"] = "streaming";
     
-    // 保存结果
-    if (saveResults(result, final_output)) {
-        std::cout << "\n💾 结果已保存到: " << final_output << std::endl;
+    // 保存结果（使用绝对路径便于定位）
+    llvm::SmallString<256> output_path(final_output);
+    llvm::sys::fs::make_absolute(output_path);
+
+    std::string output_path_str = output_path.str().str();
+
+    if (saveResults(result, output_path_str)) {
+        std::cout << "\n💾 结果已保存到: " << output_path_str << std::endl;
     } else {
-        std::cout << "⚠️ 无法保存结果到文件: " << final_output << std::endl;
+        std::cout << "⚠️ 无法保存结果到文件: " << output_path_str << std::endl;
     }
 
     // 显示结果摘要

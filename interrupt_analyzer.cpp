@@ -172,16 +172,16 @@ bool InterruptAnalyzer::loadAndAnalyzeProjectStreaming() {
 void InterruptAnalyzer::initializeStreamingComponents() {
     // 创建流式处理器
     stream_processor = std::make_unique<StreamProcessor>(config.max_worker_threads);
-    
-    // 创建结果聚合器
-    result_aggregator = std::make_unique<FileResultAggregator>(
-        &data, 
+
+    // 创建结果聚合器并将所有权转移给流式处理器
+    auto result_aggregator = std::make_unique<FileResultAggregator>(
+        &data,
         config.batch_size,
         config.max_memory_mb * 1024 * 1024 / 4  // 使用1/4内存作为聚合缓冲
     );
-    
-    // 设置回调
-    stream_processor->setCallback(std::unique_ptr<IStreamingCallback>(result_aggregator.get()));
+
+    // 设置回调并转移所有权，避免双重释放
+    stream_processor->setCallback(std::move(result_aggregator));
 }
 
 void InterruptAnalyzer::cleanupStreamingComponents() {
@@ -189,7 +189,6 @@ void InterruptAnalyzer::cleanupStreamingComponents() {
         stream_processor->stop();
         stream_processor.reset();
     }
-    // 注意：不能重置 result_aggregator，因为它被 stream_processor 持有
 }
 
 InterruptAnalyzer::AnalysisStats InterruptAnalyzer::getStatistics() const {

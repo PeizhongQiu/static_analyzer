@@ -46,7 +46,6 @@ private:
     // 新增流式处理成员
     StreamingConfig config;
     std::unique_ptr<StreamProcessor> stream_processor;
-    std::unique_ptr<FileResultAggregator> result_aggregator;
     
     // 统计信息
     std::atomic<size_t> total_files{0};
